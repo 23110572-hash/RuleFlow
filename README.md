@@ -43,28 +43,4 @@ render.yaml       Render Blueprint for backend deployment
 vercel.json       Vercel SPA routing
 ```
 
-## Quickstart (Local Development)
 
-### Backend
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate            # Windows
-pip install -r requirements.txt
-copy ..\.env.example .env          # then edit GROQ_API_KEY etc.
-uvicorn app.main:app --reload      # http://localhost:8000
-```
-By default, the backend runs against SQLite so you can test it locally with zero infrastructure. For production, I use Neon PostgreSQL with pgvector.
-
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev                        # http://localhost:5173 
-```
-
-## Deployment
-I designed this to be fully cloud-native:
-- **Frontend:** Deployed on Vercel. It's a React SPA built with Vite.
-- **Backend API:** Deployed on Render as a Web Service.
-- **Database:** Neon Serverless Postgres.
