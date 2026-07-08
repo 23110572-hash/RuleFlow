@@ -139,7 +139,7 @@ class User(Base):
 
 
 class DataSource(Base):
-    """A broker's EXISTING database/system that RegNexus connects to in order to
+    """A broker's EXISTING database/system that RuleFlow connects to in order to
     pull compliance evidence. Connection is tested on save; secrets stay server-side."""
     __tablename__ = "data_sources"
 

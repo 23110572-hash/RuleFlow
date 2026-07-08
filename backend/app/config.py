@@ -44,12 +44,7 @@ class Settings(BaseSettings):
     token_expiry_minutes: int = 60 * 24 * 7  # 7 days
 
     # Storage
-    storage_backend: str = "local"
     storage_dir: str = "./storage"
-    s3_endpoint: str = ""
-    s3_bucket: str = ""
-    s3_access_key: str = ""
-    s3_secret_key: str = ""
 
     # Temporal
     temporal_address: str = ""

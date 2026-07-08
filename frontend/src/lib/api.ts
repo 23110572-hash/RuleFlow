@@ -1,6 +1,6 @@
 const BASE = import.meta.env.VITE_API_URL ?? "https://ruleflow.onrender.com";
 
-const TOKEN_KEY = "regnexus_token";
+const TOKEN_KEY = "ruleflow_token";
 export const tokenStore = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (t: string) => localStorage.setItem(TOKEN_KEY, t),

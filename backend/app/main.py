@@ -1,4 +1,4 @@
-"""RegNexus FastAPI application entrypoint."""
+"""RuleFlow FastAPI application entrypoint."""
 from __future__ import annotations
 
 import logging
@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 structlog.configure(processors=[structlog.processors.add_log_level, structlog.processors.JSONRenderer()])
 
 app = FastAPI(
-    title="RegNexus — Agentic Compliance Platform",
+    title="RuleFlow — Agentic Compliance Platform",
     version=__version__,
     description=(
         "Agents propose; a deterministic Verification Kernel owns the truth; a human approves. "
