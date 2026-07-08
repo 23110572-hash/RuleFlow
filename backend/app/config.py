@@ -47,7 +47,25 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        origins = []
+        for o in self.cors_origins.split(","):
+            o = o.strip().strip("'\"")
+            if o:
+                # Strip trailing slashes to prevent matching failures
+                if o.endswith("/") and len(o) > 1:
+                    o = o[:-1]
+                origins.append(o)
+                
+        # Always whitelist the true production frontend just in case of environment variable typos
+        prod_frontend = "https://rule-flow.vercel.app"
+        if prod_frontend not in origins:
+            origins.append(prod_frontend)
+            
+        # Also whitelist localhost for local dev if not present
+        if "http://localhost:5173" not in origins:
+            origins.append("http://localhost:5173")
+            
+        return origins
 
     @property
     def is_openrouter(self) -> bool:
