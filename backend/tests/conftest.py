@@ -8,7 +8,7 @@ import tempfile
 import pytest
 
 # Must be set BEFORE app.config is imported anywhere.
-_TMP_DB = os.path.join(tempfile.gettempdir(), "regnexus_test.db")
+_TMP_DB = os.path.join(tempfile.gettempdir(), "ruleflow_test.db")
 if os.path.exists(_TMP_DB):
     os.remove(_TMP_DB)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"

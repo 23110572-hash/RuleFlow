@@ -31,23 +31,9 @@ class LLMClient:
             )
         import litellm
 
-        # Per-provider auth: Bedrock uses AWS credentials + region; everything
-        # else (Groq, OpenAI, Anthropic direct, …) uses a simple api_key.
+        # Per-provider auth:
         auth: dict[str, Any] = {}
-        if settings.is_bedrock:
-            auth["aws_region_name"] = settings.aws_region_name
-            if settings.aws_bearer_token_bedrock:
-                # Bedrock API key (bearer token). LiteLLM reads it from the env.
-                import os
-
-                os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.aws_bearer_token_bedrock
-            else:
-                # Classic IAM access-key/secret pair (SigV4).
-                auth["aws_access_key_id"] = settings.aws_access_key_id
-                auth["aws_secret_access_key"] = settings.aws_secret_access_key
-                if settings.aws_session_token:
-                    auth["aws_session_token"] = settings.aws_session_token
-        elif settings.is_openrouter:
+        if settings.is_openrouter:
             auth["api_key"] = settings.openrouter_api_key
         else:
             auth["api_key"] = settings.groq_api_key

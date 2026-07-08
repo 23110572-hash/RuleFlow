@@ -23,14 +23,6 @@ class Settings(BaseSettings):
     llm_model: str = "groq/llama-3.3-70b-versatile"
     llm_temperature: float = 0.0
 
-    # AWS Bedrock (used when llm_model starts with "bedrock/").
-    # Either a Bedrock API key (bearer token, starts with "ABSK...") OR a
-    # classic IAM access-key/secret pair. The bearer token takes precedence.
-    aws_bearer_token_bedrock: str = ""
-    aws_access_key_id: str = ""
-    aws_secret_access_key: str = ""
-    aws_session_token: str = ""
-    aws_region_name: str = "us-east-1"
 
     # Embeddings
     embedding_model: str = ""
@@ -58,10 +50,6 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def is_bedrock(self) -> bool:
-        return self.llm_model.startswith("bedrock/")
-
-    @property
     def is_openrouter(self) -> bool:
         return self.llm_model.startswith("openrouter/")
 
@@ -71,11 +59,6 @@ class Settings(BaseSettings):
         for the agent layer — there is no rule-based extraction fallback. If
         this is False, agent endpoints fail loudly. (The Verification Kernel is
         deterministic by design and does not depend on the LLM.)"""
-        if self.is_bedrock:
-            return bool(
-                self.aws_bearer_token_bedrock
-                or (self.aws_access_key_id and self.aws_secret_access_key)
-            )
         if self.is_openrouter:
             return bool(self.openrouter_api_key)
         return bool(self.groq_api_key)

@@ -10,11 +10,11 @@ python-multipart>=0.0.9
 httpx>=0.27
 structlog>=24.1
 
-# Agent layer (Groq / AWS Bedrock via LiteLLM) + workflow orchestration
+# Agent layer (Groq / OpenRouter via LiteLLM) + workflow orchestration
 litellm>=1.44
 langgraph>=0.2
 langchain-core>=0.3
-boto3>=1.34  # required by LiteLLM for the AWS Bedrock provider
+
 
 # Document ingestion
 pymupdf>=1.24
