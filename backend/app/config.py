@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str = "sqlite:///./regnexus.db"
+    database_url: str = "postgresql+psycopg://neondb_owner:npg_RZLn0roq7JTF@ep-green-hat-adnobjle-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
     # LLM (via LiteLLM). Model is swappable behind LiteLLM.
     groq_api_key: str = ""
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
 
     # CORS
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "https://rule-flow.vercel.app"
 
     @property
     def cors_origin_list(self) -> list[str]:

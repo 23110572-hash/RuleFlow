@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL ?? `${window.location.protocol}//${window.location.hostname}:8000`;
+const BASE = import.meta.env.VITE_API_URL ?? "https://ruleflow.onrender.com";
 
 const TOKEN_KEY = "regnexus_token";
 export const tokenStore = {
