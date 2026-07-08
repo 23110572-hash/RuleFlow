@@ -2,108 +2,69 @@
 
 > SEBI TechSprint 2026 · Theme 2 — *Agentic Compliance: From Regulatory Text to Operational Action*
 
-RuleFlow ingests **real SEBI regulatory documents**, extracts machine-actionable
-obligations with exact citations, keeps a firm's compliance state continuously in
-sync as regulation changes, and proves compliance to inspection standard.
+## The Problem Statement
+SEBI intermediaries (like stockbrokers, investment advisers, AMCs, etc.) struggle to keep up with the constant stream of regulatory changes. Every time SEBI releases a new circular or master circular, compliance teams have to manually read through pages of dense legal text, interpret what it means for their specific operations, figure out what internal controls need to change, and update their compliance checklists. This manual process is slow, prone to human error, and leads to divergent interpretations of the rules. 
 
-It is built on one core principle:
+We need a system that can take raw regulatory text, understand it, map it to a firm's operational processes, and ensure that they remain compliant without missing any critical obligations.
 
+## What is RuleFlow?
+I built RuleFlow to solve this exact problem. RuleFlow is an agentic compliance engine that ingests real SEBI regulatory documents (like PDFs of master circulars), extracts machine-actionable obligations from them, and keeps a firm's compliance state continuously in sync as regulations change. 
+
+My core philosophy when building this was simple:
 > **Agents propose. A deterministic Verification Kernel owns the truth. A human approves.**
 > Nothing enters the compliance record without (a) a real SEBI citation and (b) a human sign-off.
 
-## Integrity principle
+I wanted to ensure that the AI doesn't just hallucinate compliance rules. Every single obligation extracted by RuleFlow is anchored to an exact citation in the original SEBI document.
 
-- Everything is **real and computed at runtime**. No hardcoded outputs, no scripted demo paths.
-- The **regulatory side is 100% real** — real SEBI master circulars, real parsing, extraction, diffs, gaps, coverage numbers.
-- The **test firm is synthetic but honest** — a realistic fictional stockbroker tenant; every computation on it is genuine.
-- **No category is hardcoded.** Applicability is data (`applies_to[{category, tier}]`), not code.
+## How it works (The Three Flows)
+1. **Onboarding:** When a firm starts using RuleFlow, we ingest the current Master Circular for their category (e.g., Stock Brokers). The system extracts all the baseline obligations and creates a "Canonical Regulatory Layer" (the single source of truth). We then map the firm's existing internal controls and evidence to these obligations.
+2. **Change Management (The Core Magic):** When SEBI publishes a new or amended circular, RuleFlow ingests it, extracts the new obligations, and runs a structural DIFF against the canonical layer. It then analyzes the *operational impact* on the specific firm—telling the compliance officer exactly which internal controls or evidence requirements are affected. The human reviews it side-by-side with the source text, approves it, and RuleFlow emits a Change Request.
+3. **Ongoing Compliance & Inspection:** RuleFlow continuously maps obligations to evidence. It acts like an automated red-team inspector, running deterministic checks to detect gaps (missing evidence, stale policies, etc.) before a real SEBI inspector finds them.
 
-## Architecture at a glance
+## Integrity Principle
+I made sure that everything in this platform is real. There are no hardcoded demo paths. 
+- The regulatory documents are real SEBI PDFs.
+- The extraction, chunking, gap detection, and coverage numbers are all computed live. 
+- While the test firm I use for the demo is a synthetic stockbroker, all the mathematical computations and compliance logic applied to it are 100% genuine.
 
-```
-React SPA (Vite, Vercel) ─REST/stream─►  FastAPI (Render Web Service)
-                                        │
-                    ┌───────────────────┼─────────────────────┐
-                    ▼                   ▼                     ▼
-              Agent Layer         Verification Kernel      Ingest
-              (LangGraph +        (deterministic,          (PyMuPDF +
-               Groq via           independently tested)     OCR fallback)
-               LiteLLM)                 │
-                    └──────────────► PostgreSQL + pgvector
-                                    (bitemporal register + hash-chained audit)
-
-  Render Background Workers run LangGraph agents + Temporal workflows.
-```
-
-See `Architecture.md` for the full specification.
-
-## Repository layout
-
-```
+## Repository Layout
+```text
 backend/          FastAPI + kernel + agents + ingest + workflows + db
   app/
     kernel/       deterministic verification kernel (the trust layer)
     ingest/       real SEBI document parsing (structure tree, tables, OCR)
-    llm/          LiteLLM abstraction over Groq (model swappable)
-    agents/       LangGraph agents (extraction, cross-ref, applicability, ...)
+    llm/          LiteLLM abstraction over Groq/OpenRouter
+    agents/       LangGraph agents (extraction, cross-ref, applicability)
     db/           SQLAlchemy models (bitemporal, two-layer) + Alembic
     schemas/      Pydantic request/response models
     api/          FastAPI routers
-    workflows/    Temporal workflows
-  tests/          deterministic unit tests for the kernel
 frontend/         React + Vite + TypeScript + Tailwind CSS
-docker-compose.yml
-.env.example
+render.yaml       Render Blueprint for backend deployment
+vercel.json       Vercel SPA routing
 ```
 
-## Quickstart (local dev)
+## Quickstart (Local Development)
 
 ### Backend
-
 ```bash
 cd backend
 python -m venv .venv
 .venv\Scripts\activate            # Windows
-pip install -e ".[dev]"
+pip install -r requirements.txt
 copy ..\.env.example .env          # then edit GROQ_API_KEY etc.
-uvicorn app.main:app --reload      # http://localhost:8000  (docs at /docs)
+uvicorn app.main:app --reload      # http://localhost:8000
 ```
-
-By default the backend runs against **SQLite** so it works with zero infra.
-Set `DATABASE_URL` to a Postgres/pgvector URL for the full experience.
-
-Run the deterministic kernel tests (no external services needed):
-
-```bash
-cd backend
-pytest -q
-```
+By default, the backend runs against SQLite so you can test it locally with zero infrastructure. For production, I use Neon PostgreSQL with pgvector.
 
 ### Frontend
-
 ```bash
 cd frontend
 npm install
-npm run dev                        # http://localhost:5173 (Vite)
-```
-
-### Full stack with Docker (Postgres + Temporal + workers)
-
-```bash
-docker compose up --build
+npm run dev                        # http://localhost:5173 
 ```
 
 ## Deployment
-
-- **Frontend → Vercel**: import `frontend/` (Vite static build), set `VITE_API_URL` to the Render API URL.
-- **Backend API → Render Web Service**: root `backend/`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-- **Agents/Workflows → Render Background Worker**: start `python -m app.workflows.worker`.
-- **DB → Neon or Supabase** (Postgres + pgvector).
-
-See `.env.example` for all configuration.
-
-## Proving it works
-
-- Kernel is deterministic and unit-tested: citation gate, coverage certificate, diff, obligation tests, gap ledger, hash-chained audit.
-- Extraction precision/recall is measured against a hand-annotated ground-truth set (`backend/tests/ground_truth/`).
-- Citation fidelity target ≥ 0.95, enforced by the kernel before anything is recorded.
+I designed this to be fully cloud-native:
+- **Frontend:** Deployed on Vercel. It's a React SPA built with Vite.
+- **Backend API:** Deployed on Render as a Web Service.
+- **Database:** Neon Serverless Postgres.
