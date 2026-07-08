@@ -49,6 +49,10 @@ def seeded(db):
                                                        "threshold": o.threshold})))
     firm = Firm(name="Synthetic Securities Pvt Ltd", category="stockbroker", tier="non-QSB")
     db.add(firm)
+    db.flush()
+    from app.db.models import DataSource
+    ds = DataSource(firm_id=firm.id, name="Test DB", kind="sqlite", connection_uri="sqlite://", status="connected")
+    db.add(ds)
     db.commit()
     return {"firm_id": firm.id, "doc_id": doc.id, "o1": o1.id, "o2": o2.id}
 

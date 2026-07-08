@@ -27,8 +27,7 @@ class LLMClient:
     def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         if not self.enabled:
             raise RuntimeError(
-                "LLM not configured. Set GROQ_API_KEY, or (for a bedrock/ model) "
-                "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
+                "LLM not configured. Please set the appropriate API key (GROQ_API_KEY or OPENROTER_API_KEY) in your environment."
             )
         import litellm
 
@@ -74,7 +73,7 @@ class LLMClient:
         object from a chatty response); a hard model/network failure propagates.
         """
         if not self.enabled:
-            raise RuntimeError("LLM not configured (GROQ_API_KEY empty). Agent layer requires Groq.")
+            raise RuntimeError("LLM not configured. Agent layer requires a configured LLM provider.")
         content = self.complete(
             [
                 {"role": "system", "content": system + "\nRespond with valid JSON only."},

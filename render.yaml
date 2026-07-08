@@ -6,8 +6,12 @@ services:
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///./regnexus.db # Zero-infra default, user can swap for Postgres in Render dashboard
+        value: sqlite:///./regnexus.db
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: GROQ_API_KEY
-        sync: false # User must set their Groq key in Render dashboard
+        sync: false
+      - key: LLM_MODEL
+        value: openrouter/openai/gpt-4o-mini
       - key: CORS_ORIGINS
-        value: "*" # Allow Vercel frontend origin
+        value: "*"
