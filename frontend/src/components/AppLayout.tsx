@@ -9,7 +9,15 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/util";
 
-const NAV = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<any>;
+  gated?: boolean;
+  end?: boolean;
+}
+
+const NAV: NavItem[] = [
   { to: "/app/documents", label: "Regulations", icon: FileText },
   { to: "/app/obligations", label: "Obligations", icon: ListChecks },
   { to: "/app/approvals", label: "Approvals", icon: CheckSquare },
