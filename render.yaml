@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ruleflow-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///./regnexus.db # Zero-infra default, user can swap for Postgres in Render dashboard
+      - key: GROQ_API_KEY
+        sync: false # User must set their Groq key in Render dashboard
+      - key: CORS_ORIGINS
+        value: "*" # Allow Vercel frontend origin
