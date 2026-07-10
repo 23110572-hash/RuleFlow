@@ -31,7 +31,7 @@ def firm_obligations(db: Session, firm_id: str, category: str, as_of: datetime |
     for c in controls:
         linked_ids.update(c.obligation_ids or [])
 
-    stmt = select(Obligation).where(Obligation.status.in_(["verified", "approved"]))
+    stmt = select(Obligation).where(Obligation.status.in_(["verified", "approved", "flagged"]))
     if as_of:
         # Valid-time reconstruction: which rule was IN FORCE as of `as_of`.
         stmt = stmt.where(or_(Obligation.valid_from.is_(None), Obligation.valid_from <= as_of))
@@ -40,10 +40,17 @@ def firm_obligations(db: Session, firm_id: str, category: str, as_of: datetime |
 
     scoped = []
     for o in obligations:
-        cats = {a.get("category") for a in (o.applies_to or [])}
-        if o.id in linked_ids or category in cats:
+        cats = {str(a.get("category", "")).lower() for a in (o.applies_to or [])}
+        if (
+            o.id in linked_ids
+            or category.lower() in cats
+            or "all" in cats
+            or "any" in cats
+            or not cats
+        ):
             scoped.append(o)
     return scoped
+
 
 
 def _controls_for_obligation(db: Session, firm_id: str, obligation_id: str) -> list[Control]:

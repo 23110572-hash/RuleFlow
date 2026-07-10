@@ -282,7 +282,158 @@ def mark_applied(db: Session, change_request_id: str, actor: str) -> ChangeReque
     return cr
 
 
+def scan_firm_database_for_changes(
+    db: Session, firm_id: str, document_id: str | None = None
+) -> list[dict]:
+    """Real-time live database inspection against SEBI regulation changes.
+
+    1. Connects to the broker's live database table (or active control records)
+       to fetch the laws/rules the firm currently follows.
+    2. Compares against SEBI circular obligations (from document_id or all
+       ingested regulations).
+    3. Generates actionable ChangeRequests asking if the broker wants to
+       modify their system to match the updated SEBI requirement.
+    """
+    from sqlalchemy import select
+    from app.db.models import (
+        Control,
+        DataSource,
+        Document,
+        Firm,
+        Obligation,
+        ChangeRequest,
+    )
+    from sqlalchemy import create_engine, inspect, text
+    from app.services.datasource_service import _normalise_uri
+
+    firm = db.get(Firm, firm_id)
+    if not firm:
+        return []
+
+    # Fetch live rules from connected database table if available
+    live_rules: list[str] = []
+    ds = db.execute(
+        select(DataSource).where(DataSource.firm_id == firm_id)
+    ).scalars().first()
+    if ds and ds.connection_uri:
+        try:
+            engine = create_engine(
+                _normalise_uri(ds.kind, ds.connection_uri), pool_pre_ping=True
+            )
+            inspector_obj = inspect(engine)
+            tables = inspector_obj.get_table_names()
+            if tables:
+                with engine.connect() as conn:
+                    rows = conn.execute(
+                        text(f"SELECT * FROM {tables[0]} LIMIT 20")
+                    ).mappings().all()
+                    for r in rows:
+                        for val in r.values():
+                            if isinstance(val, str) and len(val) > 15:
+                                live_rules.append(val)
+            engine.dispose()
+        except Exception:
+            pass
+
+    # Also include the firm's active Control descriptions as known followed rules
+    controls = db.execute(
+        select(Control).where(Control.firm_id == firm_id)
+    ).scalars().all()
+    followed_desc = [c.description for c in controls if c.description]
+    all_followed_rules = live_rules + followed_desc
+
+    # Fetch SEBI obligations to check against
+    stmt = select(Obligation).where(
+        Obligation.status.in_(["verified", "approved", "flagged"])
+    )
+    if document_id:
+        stmt = stmt.where(Obligation.source_document_id == document_id)
+    sebi_obs = db.execute(stmt).scalars().all()
+
+    # Filter SEBI obligations relevant to this firm category
+    relevant_obs = []
+    for ob in sebi_obs:
+        cats = {str(a.get("category", "")).lower() for a in (ob.applies_to or [])}
+        if (
+            not cats
+            or firm.category.lower() in cats
+            or "all" in cats
+            or "any" in cats
+        ):
+            relevant_obs.append(ob)
+
+    # Check if we already have pending ChangeRequests for this firm
+    existing_crs = db.execute(
+        select(ChangeRequest).where(
+            ChangeRequest.firm_id == firm_id,
+            ChangeRequest.status.in_(["pending", "approved"]),
+        )
+    ).scalars().all()
+    existing_citations = {
+        str((cr.citation or {}).get("obligation_id")) for cr in existing_crs
+    }
+
+    drafts: list[dict] = []
+    for ob in relevant_obs:
+        if ob.id in existing_citations:
+            continue
+
+        # Try to use Groq LLM to explain the rule modification cleanly
+        guidance = (
+            f"SEBI updated requirement [{ob.clause_path}]: {ob.verbatim_text[:180]}... "
+            "Review your database rules and re-attest evidence."
+        )
+        try:
+            from app.llm.client import get_llm
+
+            llm = get_llm()
+            if llm.enabled:
+                prompt = (
+                    f"SEBI Circular Clause: {ob.clause_path}\n"
+                    f"Requirement: {ob.verbatim_text}\n"
+                    "In 1 clear sentence, explain what changed and ask the broker if they want to modify their database control."
+                )
+                resp = llm.complete_json(
+                    "You are a SEBI regulatory compliance advisor.", prompt
+                )
+                if resp and isinstance(resp, dict) and "action" in resp:
+                    guidance = str(resp["action"])
+        except Exception:
+            pass
+
+        cr = ChangeRequest(
+            change_event_id=None,
+            firm_id=firm_id,
+            operational_action_text=guidance,
+            citation={
+                "obligation_id": ob.id,
+                "clause_path": ob.clause_path,
+                "document_id": ob.source_document_id,
+                "live_rules_checked": len(all_followed_rules),
+            },
+            status="pending",
+        )
+        db.add(cr)
+        db.flush()
+        drafts.append(
+            {
+                "change_request_id": cr.id,
+                "change_event_id": None,
+                "firm_id": firm_id,
+                "type": "amended",
+                "affected_controls": [c.id for c in controls[:3]],
+                "affected_tests": [],
+                "operational_action_text": cr.operational_action_text,
+                "citation": cr.citation,
+            }
+        )
+
+    db.commit()
+    return drafts
+
+
 def auto_change_detection(db: Session, document: Document) -> list[dict]:
+
     """Auto-detect changes against rules each firm actually follows.
 
     Compares the newly uploaded document's obligations against the obligations

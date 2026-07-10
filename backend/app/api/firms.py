@@ -124,26 +124,10 @@ def check_database_against_document(
     document_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    from app.db.models import Document
     from app.services import change_service
-    from sqlalchemy import select
 
-    docs = []
-    if document_id:
-        doc = db.get(Document, document_id)
-        if doc:
-            docs = [doc]
-    else:
-        docs = db.execute(
-            select(Document).where(Document.status == "ingested")
-        ).scalars().all()
+    drafts = change_service.scan_firm_database_for_changes(db, firm_id, document_id)
+    return {"action_items_created": len(drafts), "drafts": drafts}
 
-    all_drafts = []
-    for doc in docs:
-        drafts = change_service.auto_change_detection(db, doc)
-        firm_drafts = [d for d in drafts if d.get("firm_id") == firm_id]
-        all_drafts.extend(firm_drafts)
-
-    return {"action_items_created": len(all_drafts), "drafts": all_drafts}
 
 
