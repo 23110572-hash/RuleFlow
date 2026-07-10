@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8000" : "https://ruleflow.onrender.com");
+const BASE = import.meta.env.VITE_API_URL ?? "https://ruleflow.onrender.com";
 
 
 const TOKEN_KEY = "ruleflow_token";
