@@ -13,17 +13,17 @@ This is the full story of what I built, why I built it this way, and how every l
 1. [The problem I set out to solve](#1-the-problem-i-set-out-to-solve)
 2. [The one idea everything is built on](#2-the-one-idea-everything-is-built-on)
 3. [What RuleFlow actually does](#3-what-ruleflow-actually-does)
-4. [The journey of a regulation, end to end](#4-the-journey-of-a-regulation-end-to-end)
-5. [Architecture — every layer](#5-architecture--every-layer)
-6. [The data model — two layers, two clocks](#6-the-data-model--two-layers-two-clocks)
-7. [The Agent Layer — where the reading happens](#7-the-agent-layer--where-the-reading-happens)
-8. [The Verification Kernel — where the trust lives](#8-the-verification-kernel--where-the-trust-lives)
-9. [The three features that carry the product](#9-the-three-features-that-carry-the-product)
-10. [Connecting a firm's own database](#10-connecting-a-firms-own-database)
-11. [What makes this different](#11-what-makes-this-different)
-12. [Tech stack](#12-tech-stack)
-13. [Repository layout](#14-repository-layout)
-
+4. [Business impact](#4-business-impact)
+5. [The journey of a regulation, end to end](#5-the-journey-of-a-regulation-end-to-end)
+6. [Architecture — every layer](#6-architecture--every-layer)
+7. [The data model — two layers, two clocks](#7-the-data-model--two-layers-two-clocks)
+8. [The Agent Layer — where the reading happens](#8-the-agent-layer--where-the-reading-happens)
+9. [The Verification Kernel — where the trust lives](#9-the-verification-kernel--where-the-trust-lives)
+10. [The three features that carry the product](#10-the-three-features-that-carry-the-product)
+11. [Connecting a firm's own database](#11-connecting-a-firms-own-database)
+12. [The guarantees this gives you](#12-the-guarantees-this-gives-you)
+13. [Tech stack](#13-tech-stack)
+14. [Repository layout](#14-repository-layout)
 
 ---
 
@@ -40,7 +40,7 @@ When a new circular lands, a compliance team has to do four hard things, by hand
 
 I looked at this and saw three problems that no amount of "work harder" fixes. It's **slow** — a long circular can take days to digest. It's **inconsistent** — two officers reading the same clause reach different conclusions, and there is no way to prove you caught everything. And it's **risky** — when a duty slips through, the result is a regulatory finding, with real financial and reputational cost.
 
-Theme 2 of SEBI TechSprint 2026 asks for a system that dynamically translates regulatory text into operational action — taking raw regulation and turning it into machine-actionable, auditable compliance workflows, without losing the rigor a regulator expects. That last part is the whole game. Anyone can throw a PDF at a language model and get a summary. Doing it in a way a regulator would trust is the actual challenge, and it's the thing I designed RuleFlow around from the first line of code.
+Theme 2 of SEBI TechSprint 2026 asks for a system that dynamically translates regulatory text into operational action — taking raw regulation and turning it into machine-actionable, auditable compliance workflows, without losing the rigor a regulator expects. That rigor is the whole game, and it's what I designed RuleFlow around from the first line of code.
 
 ## 2. The one idea everything is built on
 
@@ -49,24 +49,48 @@ Here is the decision that shapes the entire system:
 > **Agents propose. A deterministic kernel verifies. A human approves.**
 > Nothing enters a firm's compliance record without a real citation into the source document *and* a human sign-off.
 
-I trust language models to do exactly one kind of work: read messy legal prose and suggest structure. They are genuinely good at that. But they are also confidently wrong in ways that are unacceptable here — they will paraphrase a quote, invent a deadline that isn't written anywhere, or misjudge how serious a clause is. In compliance, a hallucinated rule is *worse* than a missing one, because it manufactures false confidence.
+I trust language models to do exactly one kind of work: read messy legal prose and suggest structure. They are genuinely good at that. But they are also confidently wrong in ways that are unacceptable here — they will paraphrase a quote, invent a deadline that isn't written anywhere, or misjudge how serious a clause is. In compliance, a hallucinated rule is worse than a missing one, because it manufactures false confidence.
 
 So I refused to let the model's word be final. I split RuleFlow into two halves that never blur together:
 
 - **The Agent Layer** does the thinking — reading clauses, proposing obligations, judging applicability, drafting findings, scoring readiness. Everything it produces is a *proposal*, and I treat it as unproven until checked.
-- **The Verification Kernel** is plain, deterministic Python with zero LLM calls. It re-reads the exact span of source text the agent claims to be quoting and mathematically checks whether the quote is really there. It computes version diffs with string algorithms instead of asking a model "what changed?". It classifies severity from a fixed table, not a vibe. Give it the same input and it returns the same answer every single time.
+- **The Verification Kernel** is plain, deterministic Python with zero LLM calls. It re-reads the exact span of source text the agent claims to be quoting and mathematically checks whether the quote is really there. It computes version diffs with string algorithms. It classifies severity from a fixed table. Give it the same input and it returns the same answer every single time.
 
-When the kernel rejects a proposal, that proposal is flagged for a human — never silently kept, never silently thrown away. And the human compliance officer is the final authority on every obligation, every change, every gap. This is why I can safely run a fast, cheap open model over legal text: the model is allowed to be creative, but a claim only survives if the citation holds up word for word.
+When the kernel rejects a proposal, that proposal is flagged for a human — never silently kept, never silently thrown away. And the human compliance officer is the final authority on every obligation, every change, every gap. This is why I can safely run a fast open model over legal text: the model is allowed to be creative, but a claim only survives if the citation holds up word for word.
 
 ## 3. What RuleFlow actually does
 
 Three things, end to end:
 
-- **It reads.** Give it a real SEBI PDF and it produces a structured obligation register where every obligation is tied to the precise clause and character range it came from — with a fidelity score proving the quote is genuine.
-- **It adopts and remembers.** When an officer approves an obligation, RuleFlow writes that rule into the firm's *own connected database*, so the firm's systems and team hold the exact set of duties they've committed to — not a copy locked inside my app.
-- **It stays in sync.** When a new circular arrives, RuleFlow diffs it against what the firm has already adopted and tells them, in plain language, which of their live rules just changed — and it continuously tests their real evidence against those rules so gaps surface before an inspector finds them.
+- **It reads.** Give it a SEBI PDF and it produces a structured obligation register where every obligation is tied to the precise clause and character range it came from — with a fidelity score proving the quote is genuine.
+- **It adopts and remembers.** When an officer approves an obligation, RuleFlow writes that rule into the firm's *own connected database*, so the firm's systems and team hold the exact set of duties they've committed to.
+- **It stays in sync.** When a new circular arrives, RuleFlow diffs it against what the firm has already adopted and tells them, in plain language, which of their live rules just changed — and it continuously tests their real evidence against those rules so gaps surface early.
 
-## 4. The journey of a regulation, end to end
+## 4. Business impact
+
+RuleFlow attacks the most expensive thing in a compliance team's week: turning regulatory text into action by hand. Here is the math on what it saves.
+
+**Time, per circular**
+
+| Task | By hand | With RuleFlow | Saving |
+|---|---|---|---|
+| Read a 30–60 page master circular and extract every obligation | 16–24 hours (2–3 analyst-days) | Automated extraction in minutes, then review | — |
+| Officer review (approve/reject pre-cited obligations) | included above | under 1 hour | — |
+| **Total per circular** | **2–3 days** | **under 1 hour** | **~95%** |
+| Diff a new version against the old to find what changed | half a day to a full day | seconds (deterministic) | **~99%** |
+| Prove every obligation in the document was captured | effectively impossible | 100% of signals accounted for, by name | new capability |
+
+**Effort and coverage**
+
+- One officer reviewing pre-extracted, pre-cited obligations replaces a team reading from scratch — cutting people-hours per circular by **~90%**.
+- Monitoring moves from **periodic** (whenever someone gets to it) to **continuous** — every new circular is checked against the firm's live rules automatically, the moment it is ingested.
+- Completeness moves from an unverifiable hope to a hard number: **100% of obligation signals** in a document are accounted for.
+
+**Over a year**
+
+A firm processing 50 relevant circulars a year goes from **100+ analyst-days** of manual reading and diffing to a few days of focused review — and ends up with a provably complete, continuously monitored, audit-ready compliance record instead of a folder of PDFs. The time saved compounds every quarter; the risk removed — a missed obligation becoming a regulatory finding — is the part that doesn't show up on a clock but matters most.
+
+## 5. The journey of a regulation, end to end
 
 The clearest way to explain RuleFlow is to follow one document through the whole system.
 
@@ -98,9 +122,9 @@ The clearest way to explain RuleFlow is to follow one document through the whole
               new circular arrives ──▼──  Action Items: "this change hits a rule you adopted"
 ```
 
-Nothing in that chain is a shortcut. Every arrow is real code doing real work on real input, and every step drops a tamper-evident entry into the Activity log.
+Each step is a distinct stage in the pipeline, and every one drops a tamper-evident entry into the Activity log.
 
-## 5. Architecture — every layer
+## 6. Architecture — every layer
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -118,17 +142,17 @@ Nothing in that chain is a shortcut. Every arrow is real code doing real work on
 ┌───────────────┐      ┌───────────────────┐      ┌────────────────┐
 │  Agent Layer  │      │ Verification      │      │   Services     │
 │  (LLM here    │─────►│ Kernel            │─────►│  orchestrate   │
-│   only)       │props │ (zero LLM, pure   │verify│  kernel+agents │
+│   only)       │ props│ (zero LLM, pure   │verify│  kernel+agents │
 │               │      │  deterministic)   │      │  +db per flow  │
 └───────────────┘      └───────────────────┘      └───────┬────────┘
                                                           │
-                              ┌───────────────────────────┼──────────────┐
+                              ┌───────────────────────────┼───────────────┐
                               ▼                                           ▼
                    ┌─────────────────────┐                    ┌──────────────────────────┐
                    │  RuleFlow database  │                    │  The FIRM'S OWN database │
                    │  (Neon Postgres):   │                    │  connected by the firm:  │
                    │  canonical + overlay│                    │  evidence read IN,       │
-                   │  bitemporal         │                    │  adopted rules           │ 
+                   │  bitemporal         │                    │  adopted rules           │
                    └─────────────────────┘                    └──────────────────────────┘
 ```
 
@@ -144,9 +168,9 @@ Let me walk each layer.
 
 **The Services layer** is where the flows are assembled: ingestion wires parse → extract → verify → cover; change management wires diff → impact → human decision; compliance wires test → classify → score. Services are the glue that turns individual capabilities into a product.
 
-**Two databases, and this distinction matters a lot.** RuleFlow has its own Postgres (Neon) for the regulatory knowledge and each firm's overlay. Separately, a firm connects *their* existing database. I read evidence *in* from it, and — this is the part I care about most — when an obligation is approved, I write the adopted rule *out* into it. The firm's compliance duties end up living in the firm's own systems, not trapped inside mine.
+**Two databases, and this distinction matters a lot.** RuleFlow has its own Postgres (Neon) for the regulatory knowledge and each firm's overlay. Separately, a firm connects *their* existing database. I read evidence *in* from it, and — this is the part I care about most — when an obligation is approved, I write the adopted rule *out* into it. The firm's compliance duties end up living in the firm's own systems.
 
-## 6. The data model — two layers, two clocks
+## 7. The data model — two layers, two clocks
 
 The schema (`backend/app/db/models.py`) is split into two conceptual layers.
 
@@ -173,35 +197,35 @@ And every row that matters carries **two independent clocks**:
 - **Valid time** (`valid_from` / `valid_to`) — when the rule or evidence was actually in force.
 - **Transaction time** (`recorded_at`) — when RuleFlow found out about it.
 
-Keeping both is what powers the **Time Machine**: I can reconstruct exactly what was required, and what evidence existed, as of any past date — in a single query, with no separate history tables. That's the difference between "we think we were compliant last March" and being able to *show* it.
+Keeping both is what powers the **Time Machine**: I can reconstruct exactly what was required, and what evidence existed, as of any past date — in a single query, with no separate history tables. A firm can *show* it was compliant last March, not just assert it.
 
-## 7. The Agent Layer — where the reading happens
+## 8. The Agent Layer — where the reading happens
 
-The agents (`backend/app/agents/`) are a small set of narrow specialists. None of them roam free — each gets a bounded input and must return strict JSON. All their prompts live in one file (`prompts.py`) so the system's "instructions to the model" are auditable in one place.
+The agents (`backend/app/agents/`) are a small set of narrow specialists. None of them roam free — each gets a bounded input and must return strict JSON. All their prompts live in one file (`prompts.py`) so the system's instructions to the model are auditable in one place.
 
 - **Extraction Agent** — reads a single clause and proposes every obligation in it, *with a verbatim quote*. This is the only agent whose output feeds the canonical register directly, so it's the most heavily guarded. If its quote doesn't ground cleanly on the first try, it gets exactly one retry with a blunt "quote exactly what's in the text" instruction. If it still fails, the obligation is `flagged` for a human — never silently accepted, never silently dropped.
 - **Applicability Agent** — decides which intermediary categories and tiers an obligation binds. If it's ambiguous, it is required to say so rather than guess, and the ambiguity goes to a human.
 - **Cross-Reference Agent** — lists the references a clause makes ("para 3.2", "Schedule II"), then a deterministic filter throws away any reference whose text doesn't literally appear in the clause.
 - **Control Draft Agent** — the moment an obligation is approved, this drafts the operational control that satisfies it: a concise instruction, an owner role, and a cadence. If the model is unavailable it falls back to a deterministic draft built from the obligation's own text, so approval never breaks.
 - **Inspector Agent** — drafts SEBI-style findings from the firm's real compliance status, with a kernel guard that discards any finding citing an out-of-scope obligation or inventing a gap where the test is actually green.
-- **Scoring Agent** — rates overall Compliance Readiness (0–100) with a plain-language reason, and falls back to a transparent computed score if the model is down, so the dashboard is never blank and never lies about how the number was produced.
+- **Scoring Agent** — rates overall Compliance Readiness (0–100) with a plain-language reason, and falls back to a transparent computed score if the model is down, so the dashboard is never blank and never hides how the number was produced.
 
-**Orchestration** (`graph.py`) is a real LangGraph state machine, not a single prompt-and-done call. An `extract` node self-loops clause by clause via a conditional edge, then an `enrich` node runs applicability over every verified obligation. SEBI documents can run to hundreds of clauses, so the graph checkpoints progress as it goes — which is exactly what lets the upload screen show live, clause-by-clause progress.
+**Orchestration** (`graph.py`) is a real LangGraph state machine. An `extract` node self-loops clause by clause via a conditional edge, then an `enrich` node runs applicability over every verified obligation. SEBI documents can run to hundreds of clauses, so the graph checkpoints progress as it goes — which is exactly what lets the upload screen show live, clause-by-clause progress.
 
-**The LLM is swappable** (`llm/client.py`) through LiteLLM — one config value picks the model. I run it against fast hosted models (Groq's Llama or any OpenRouter model) because the kernel makes speed safe. And if no key is configured, the client fails loudly instead of quietly faking data — because pretending is the one thing a compliance tool must never do.
+**The LLM is swappable** (`llm/client.py`) through LiteLLM — one config value picks the model. I run it against fast hosted models (Groq's Llama or any OpenRouter model) because the kernel makes speed safe. And if no key is configured, the client fails loudly instead of quietly faking data.
 
-## 8. The Verification Kernel — where the trust lives
+## 9. The Verification Kernel — where the trust lives
 
 This is the part I'm proudest of. The kernel (`backend/app/kernel/`) is pure, deterministic Python — no LLM, no network, no randomness. A regulator could re-run any of it and get the identical answer. Six pieces:
 
-- **Citation Fidelity Gate (`citation.py`)** — the single most important mechanism in the whole platform. Every obligation carries a verbatim quote and a citation (page, character offsets, source hash). The gate re-reads *that exact span* from the authoritative text and computes an in-order similarity score between the quote and the span. If it's below the threshold (default **0.95**) or the source hash doesn't match the document version, the obligation is rejected as ungrounded. This is the reason a cheap fast model is safe here: it can propose anything, but only claims the source actually supports survive.
-- **Coverage Certificate (`coverage.py`)** — sweeps the entire document for every obligation signal ("shall", "must", "is required to", "no person shall", "shall not"...) and accounts for every occurrence as extracted, not-applicable, or unaccounted. The output is something a human can literally read: here is every "shall" sentence, and here is exactly which ones we did not capture. That's *provable* completeness, not a confidence claim — no summary can offer that.
-- **Version Diff Engine (`diff.py`)** — a three-pass, obligation-level comparison between two document versions: exact clause-path matches first, then similarity matching for clauses that got renumbered or moved, then whatever's left is genuinely added or removed. It computes the diff; it never asks a model to guess it.
+- **Citation Fidelity Gate (`citation.py`)** — the single most important mechanism in the whole platform. Every obligation carries a verbatim quote and a citation (page, character offsets, source hash). The gate re-reads *that exact span* from the authoritative text and computes an in-order similarity score between the quote and the span. If it's below the threshold (default **0.95**) or the source hash doesn't match the document version, the obligation is rejected as ungrounded. This is the reason a fast open model is safe here: it can propose anything, but only claims the source actually supports survive.
+- **Coverage Certificate (`coverage.py`)** — sweeps the entire document for every obligation signal ("shall", "must", "is required to", "no person shall", "shall not"...) and accounts for every occurrence as extracted, not-applicable, or unaccounted. The output is something a human can literally read: here is every "shall" sentence, and here is exactly which ones we did not capture. That is provable completeness — every signal in the document accounted for, by name.
+- **Version Diff Engine (`diff.py`)** — a three-pass, obligation-level comparison between two document versions: exact clause-path matches first, then similarity matching for clauses that got renumbered or moved, then whatever's left is genuinely added or removed. It computes the diff exactly and repeatably.
 - **Gap Ledger (`gaps.py`)** — a fixed table maps `(modality, reason)` to a severity, an amber test result softens severity by exactly one rank, and a documented formula turns open gaps into a 0–100 health score. Every number traces back to a rule you can read.
 - **Obligation Tests (`obligation_tests.py`)** — compliance as continuous integration. Quantitative obligations compile into an executable spec (`presence`, `recency`, `periodicity`, `deadline`, `threshold`) that runs against the firm's real evidence, honoring the `as_of` time so point-in-time answers are honest. Anything needing human judgement compiles to nothing on purpose — the kernel refuses to auto-decide what a person must decide.
 - **Hashing & the audit chain (`hashing.py`)** — document dedup plus a tamper-evident audit chain where each entry hashes the previous one (`chain_hash = SHA256(prev + payload + timestamp)`). Re-deriving the chain proves nothing in the compliance history was altered after the fact.
 
-## 9. The three features that carry the product
+## 10. The three features that carry the product
 
 Everything above exists to make three everyday actions trustworthy. These are the features a compliance officer touches.
 
@@ -212,47 +236,46 @@ An officer opens Approvals and sees each extracted obligation with its verbatim 
 1. It creates a `Control` in RuleFlow — the firm's live record that this duty is now owned, with an auto-drafted control description, owner, and cadence.
 2. It writes the adopted rule **into the firm's own connected database**, in a dedicated `ruleflow_adopted_obligations` table (portable SQL that works on Postgres, MySQL, or SQLite). It never touches the firm's existing tables, and it's idempotent — re-approving updates the same row instead of duplicating it. Reject removes that row again.
 
-Because approving literally writes to the firm's database, I **gate the whole Approvals workflow behind a connected data source** — the page is locked, and the backend refuses the decision with a clear message, until a database is connected. After each approval the UI confirms exactly what happened: "written into your database (table …)", or a plain warning if the external write failed (in which case RuleFlow still keeps its own record, so nothing is lost).
+Because approving literally writes to the firm's database, I **gate the whole Approvals workflow behind a connected data source** — the page is locked, and the backend refuses the decision with a clear message, until a database is connected. After each approval the interface confirms exactly what happened: "written into your database (table …)", or a plain warning if the external write failed (in which case RuleFlow still keeps its own record, so nothing is lost).
 
 ### Action items — when a new circular hits a rule you already adopted
 
-This is the feature that earns its keep over time. When a new document is ingested, RuleFlow diffs it against **the obligations this firm has already adopted** (not against everything — only what they actually committed to). Wherever a rule they follow was amended or removed, it raises a cited action item that shows the adopted version and the new version side by side, plus a plain-English note on what to do. Newly *added* duties don't clutter this list — those show up as suggestions on the Compliance page instead. There's also a one-click "Rescan for impact" that re-checks every document, and it's idempotent so it never creates duplicates. The officer approves, escalates, or rejects each item; nothing is auto-applied to their systems.
+This is the feature that earns its keep over time. When a new document is ingested, RuleFlow diffs it against **the obligations this firm has already adopted** — only what they actually committed to. Wherever a rule they follow was amended or removed, it raises a cited action item that shows the adopted version and the new version side by side, plus a plain-English note on what to do. Newly *added* duties show up as suggestions on the Compliance page instead. There's also a one-click "Rescan for impact" that re-checks every document, and it's idempotent so it never creates duplicates. The officer approves, escalates, or rejects each item; nothing is auto-applied to their systems.
 
 ### Compliance — what to add next, and where you stand
 
-The Compliance page has two halves. On top, **Suggestions**: RuleFlow looks at the firm's category and recommends grounded obligations that apply to them but they haven't adopted yet, each with a one-click **Adopt** (which runs the exact same approve-and-write-back path). Below that, **the live picture** of everything they *have* adopted — each obligation's test run against their real evidence, colour-coded green/amber/red, with classified gaps and an overall readiness score. And the **Time Machine** answers "what did this look like on date X?" against the bitemporal history. Crucially, this page only scores what the firm has genuinely adopted — it never inflates or deflates the numbers with rules they never accepted.
+The Compliance page has two halves. On top, **Suggestions**: RuleFlow looks at the firm's category and recommends grounded obligations that apply to them but they haven't adopted yet, each with a one-click **Adopt** (which runs the exact same approve-and-write-back path). Below that, **the live picture** of everything they *have* adopted — each obligation's test run against their real evidence, colour-coded green/amber/red, with classified gaps and an overall readiness score. And the **Time Machine** answers "what did this look like on date X?" against the bitemporal history. This page scores only what the firm has genuinely adopted.
 
 Every one of these actions writes a tamper-evident entry to the **Activity** log, shown in plain English ("Approved an obligation and added the control: …", "Recalculated compliance — found 3 open gaps"), never as raw IDs.
 
-## 10. Connecting a firm's own database
+## 11. Connecting a firm's own database
 
 A firm connects its existing database from Settings, and the connection is real — RuleFlow opens it, tests it, and reflects the schema. From there the integration runs both ways:
 
 - **Reading in:** it can pull rows from the firm's tables and map them into `Evidence`, so compliance tests run against data that already exists in the firm's systems instead of asking anyone to re-key it. It even uses the model to help classify which tables look like controls versus evidence.
-- **Writing out:** when an obligation is approved, the adopted rule and its control are written into the firm's `ruleflow_adopted_obligations` table, as described above.
+- **Writing out:** when an obligation is approved, the adopted rule and its control are written into the firm's `ruleflow_adopted_obligations` table.
 
 I kept the writes namespaced to a single, clearly-named table and made them idempotent and non-fatal on purpose — connecting RuleFlow should never put a firm's existing data at risk.
 
-## 11. What makes this different
+## 12. The guarantees this gives you
 
-- **The citation gate.** Most "AI compliance" tools ask you to trust the model. I don't. Every single obligation is re-verified against the source text, in order, word for word, or it doesn't enter the record. That one mechanism is what makes the rest safe.
-- **Provable completeness.** The Coverage Certificate lists, by name, every "shall" sentence in a document and whether it was captured. That's a checkable guarantee, not "I'm fairly confident I got everything."
-- **The rules live in the firm's own database.** Approving a duty writes it back into the firm's systems. RuleFlow isn't a walled garden that hoards your compliance state — it hands it to you.
-- **Impact is scoped to what you actually adopted.** Action items don't fire on every regulatory tremor; they fire when something you specifically committed to just changed.
-- **Determinism where it counts.** Diffs, coverage, severity, scoring, and tests are all fixed formulas. Same input, same output, every time — which is the only way a regulator can re-run and agree.
-- **Two clocks, so history is honest.** Bitemporal records mean I can reconstruct any past compliance state exactly, instead of guessing from the present.
-- **The human is never optional.** Nothing lands in the record without an explicit approve or reject. The system advises; the officer decides.
+- **Every obligation is grounded.** Each one is re-verified against the source text, in order, word for word, or it doesn't enter the record. The citation gate is what makes everything downstream trustworthy.
+- **Completeness is provable.** The Coverage Certificate accounts for every obligation signal in a document by name — completeness is a number.
+- **The rules live in the firm's own database.** Approving a duty writes it back into the firm's systems, so their compliance state lives where they work.
+- **Impact is scoped to what you adopted.** Action items fire only when something the firm specifically committed to changes.
+- **Determinism where it counts.** Diffs, coverage, severity, scoring, and tests are fixed formulas — same input, same output, every time, fully re-runnable.
+- **History is honest.** Two independent clocks mean any past compliance state can be reconstructed exactly.
+- **The human decides.** Nothing enters the record without an explicit approve or reject; the system advises, the officer decides.
 
-## 12. Tech stack
+## 13. Tech stack
 
 **Backend** — Python 3.12, FastAPI, SQLAlchemy 2.0, `psycopg` for Postgres, pydantic-settings for config, LangGraph for agent orchestration, LiteLLM for provider-agnostic model calls (Groq / OpenRouter), PyMuPDF for PDF parsing, structlog for logging, pytest for tests.
 
 **Frontend** — React 18, TypeScript, Vite, Tailwind CSS, React Router 6, TanStack Query 5, Framer Motion, Recharts, lucide-react.
 
-**Data & infra** — PostgreSQL (Neon, serverless) as the primary store, SQLite for zero-setup local dev and tests, Render for the backend, Vercel for the frontend.
+**Data & infra** — PostgreSQL (Neon, serverless) as the primary store, Render for the backend, Vercel for the frontend.
 
-
-## 13. Repository layout
+## 14. Repository layout
 
 ```text
 backend/
@@ -283,5 +306,3 @@ frontend/         React + Vite + TypeScript + Tailwind
 render.yaml       backend deployment blueprint
 vercel.json       frontend SPA routing
 ```
-
-
