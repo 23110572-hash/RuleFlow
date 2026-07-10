@@ -78,11 +78,35 @@ def diff_documents(db: Session, from_document_id: str, to_document_id: str) -> d
 
 def _action_text(change: ObligationChange | ChangeEvent) -> str:
     t = change.type
+    old_txt = (change.old_version or {}).get("text", "") if hasattr(change, "old_version") else ""
+    new_txt = (change.new_version or {}).get("text", "") if hasattr(change, "new_version") else ""
+
+    try:
+        from app.llm.client import get_llm
+        llm = get_llm()
+        if llm.enabled and (old_txt or new_txt):
+            prompt = (
+                f"Regulation rule change ({t}).\n"
+                f"Old Requirement: {old_txt}\n"
+                f"New Requirement: {new_txt}\n"
+                "In 1 or 2 concise sentences, tell the compliance officer at a SEBI broker firm "
+                "what changed and what operational action they must take."
+            )
+            resp = llm.complete_json(
+                "You are a SEBI regulatory compliance expert.",
+                prompt
+            )
+            if resp and isinstance(resp, dict) and "action" in resp:
+                return str(resp["action"])
+    except Exception:
+        pass
+
     if t == "added":
         return "New obligation introduced. Establish a control and begin collecting evidence."
     if t == "removed":
         return "Obligation removed/superseded. Retire the mapped control after retention period; retain historical evidence."
     return "Obligation amended. Review the mapped control, update the obligation test, and re-attest evidence against the new requirement."
+
 
 
 def operational_impact(db: Session, firm_id: str, change_event_ids: list[str]) -> list[dict]:
@@ -143,6 +167,7 @@ def operational_impact(db: Session, firm_id: str, change_event_ids: list[str]) -
             {
                 "change_request_id": cr.id,
                 "change_event_id": ce.id,
+                "firm_id": firm_id,
                 "type": ce.type,
                 "affected_controls": affected_controls,
                 "affected_tests": affected_tests,

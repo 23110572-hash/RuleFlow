@@ -113,6 +113,10 @@ export const api = {
     request<{ summary: Record<string, number>; change_event_ids: string[] }>(`/documents/${fromId}/diff/${toId}`, { method: "POST" }),
   changeImpact: (firmId: string, changeEventIds: string[]) =>
     request<ChangeRequest[]>(`/firms/${firmId}/change-impact`, { method: "POST", body: JSON.stringify({ change_event_ids: changeEventIds }) }),
+  checkDatabaseAgainstDocument: (firmId: string, documentId?: string) =>
+    request<{ action_items_created: number; drafts: ChangeRequest[] }>(`/firms/${firmId}/check-database${documentId ? `?document_id=${documentId}` : ""}`, { method: "POST" }),
+
+
 
   // inspector + audit
   runInspection: (firmId: string, theme: string) =>

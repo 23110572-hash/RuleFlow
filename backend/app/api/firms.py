@@ -116,3 +116,34 @@ def add_evidence(firm_id: str, body: EvidenceIn, db: Session = Depends(get_db)):
         id=e.id, firm_id=e.firm_id, control_id=e.control_id, description=e.description,
         source_system=e.source_system, hash=e.hash, metrics=e.metrics or {}, captured_at=e.captured_at,
     )
+
+
+@router.post("/{firm_id}/check-database")
+def check_database_against_document(
+    firm_id: str,
+    document_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    from app.db.models import Document
+    from app.services import change_service
+    from sqlalchemy import select
+
+    docs = []
+    if document_id:
+        doc = db.get(Document, document_id)
+        if doc:
+            docs = [doc]
+    else:
+        docs = db.execute(
+            select(Document).where(Document.status == "ingested")
+        ).scalars().all()
+
+    all_drafts = []
+    for doc in docs:
+        drafts = change_service.auto_change_detection(db, doc)
+        firm_drafts = [d for d in drafts if d.get("firm_id") == firm_id]
+        all_drafts.extend(firm_drafts)
+
+    return {"action_items_created": len(all_drafts), "drafts": all_drafts}
+
+

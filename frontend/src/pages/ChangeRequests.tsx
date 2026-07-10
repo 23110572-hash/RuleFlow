@@ -243,39 +243,16 @@ function ScanForChanges({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const { data: docs = [], isLoading: docsLoading } = useQuery({
-    queryKey: ["documents"],
-    queryFn: api.documents,
-  });
-  const [fromId, setFromId] = useState("");
-  const [toId, setToId] = useState("");
-  const [step, setStep] = useState<"pick" | "diffing" | "impact" | "done">("pick");
-  const [result, setResult] = useState<{ changes: number; actionItems: number } | null>(null);
+  const [step, setStep] = useState<"pick" | "scanning" | "done">("pick");
+  const [result, setResult] = useState<{ actionItems: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const ingestedDocs = docs.filter((d: DocumentT) => d.status === "ingested" && d.obligation_count > 0);
-
   const runScan = async () => {
-    if (!fromId || !toId || fromId === toId) return;
     setError(null);
-    setStep("diffing");
+    setStep("scanning");
     try {
-      const diff = await api.diffDocuments(fromId, toId);
-      const changeEventIds = diff.change_event_ids ?? [];
-      const totalChanges =
-        (diff.summary?.added ?? 0) +
-        (diff.summary?.amended ?? 0) +
-        (diff.summary?.removed ?? 0);
-
-      if (changeEventIds.length === 0) {
-        setResult({ changes: 0, actionItems: 0 });
-        setStep("done");
-        return;
-      }
-
-      setStep("impact");
-      const items = await api.changeImpact(firmId, changeEventIds);
-      setResult({ changes: totalChanges, actionItems: items.length });
+      const res = await api.checkDatabaseAgainstDocument(firmId);
+      setResult({ actionItems: res.action_items_created });
       setStep("done");
     } catch (e: any) {
       setError(e.message ?? String(e));
@@ -285,95 +262,40 @@ function ScanForChanges({
 
   return (
     <Card className="mb-6">
-      <h3 className="mb-3 text-sm font-semibold text-ink-900">
-        Manual change scan
+      <h3 className="mb-2 text-sm font-semibold text-ink-900">
+        Check my database against regulations
       </h3>
       <p className="mb-4 text-xs text-ink-500">
-        Pick two versions of a regulation to compare. The system will find
-        obligation changes and generate action items.
+        Click below to scan all ingested regulations against your firm&apos;s connected database rules. Our AI will analyze any rule changes and generate action items for your review.
       </p>
 
-      {docsLoading ? (
-        <Spinner />
-      ) : ingestedDocs.length < 2 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          You need at least 2 ingested regulations with obligations to compare.
-          Upload more documents first.
-        </div>
-      ) : step === "pick" ? (
+      {step === "pick" ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label mb-1 block">Old version</label>
-              <select
-                value={fromId}
-                onChange={(e) => setFromId(e.target.value)}
-                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-              >
-                <option value="">Select…</option>
-                {ingestedDocs.map((d: DocumentT) => (
-                  <option key={d.id} value={d.id} disabled={d.id === toId}>
-                    {d.title}
-                    {d.circular_number ? ` (${d.circular_number})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label mb-1 block">New version</label>
-              <select
-                value={toId}
-                onChange={(e) => setToId(e.target.value)}
-                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-              >
-                <option value="">Select…</option>
-                {ingestedDocs.map((d: DocumentT) => (
-                  <option key={d.id} value={d.id} disabled={d.id === fromId}>
-                    {d.title}
-                    {d.circular_number ? ` (${d.circular_number})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error}
             </div>
           )}
           <div className="flex gap-2">
-            <TButton
-              disabled={!fromId || !toId || fromId === toId}
-              onClick={runScan}
-            >
-              <RefreshCw className="h-4 w-4" /> Compare & generate
+            <TButton onClick={runScan}>
+              <RefreshCw className="h-4 w-4" /> Check my database
             </TButton>
             <TButton variant="ghost" onClick={onCancel}>
               Cancel
             </TButton>
           </div>
         </div>
-      ) : step === "diffing" || step === "impact" ? (
+      ) : step === "scanning" ? (
         <div className="flex items-center gap-3 py-4">
           <Spinner />
           <span className="text-sm text-ink-600">
-            {step === "diffing"
-              ? "Diffing obligations…"
-              : "Generating action items…"}
+            Scanning regulations against your database rules &amp; generating AI guidance…
           </span>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-center">
-            <div className="rounded-xl border border-ink-100 py-3">
-              <div className="text-2xl font-semibold text-ink-900">
-                {result?.changes ?? 0}
-              </div>
-              <div className="mt-1 text-[11px] text-ink-400">
-                Obligation changes
-              </div>
-            </div>
-            <div className="rounded-xl border border-ink-100 py-3">
+          <div className="text-center">
+            <div className="rounded-xl border border-ink-100 py-4">
               <div
                 className={`text-2xl font-semibold ${
                   (result?.actionItems ?? 0) > 0
@@ -383,16 +305,17 @@ function ScanForChanges({
               >
                 {result?.actionItems ?? 0}
               </div>
-              <div className="mt-1 text-[11px] text-ink-400">
-                Action items created
+              <div className="mt-1 text-xs text-ink-500">
+                Action items created for your firm
               </div>
             </div>
           </div>
           <TButton onClick={onDone}>
-            <ArrowRight className="h-4 w-4" /> View action items
+            <ArrowRight className="h-4 w-4" /> Review action items
           </TButton>
         </div>
       )}
     </Card>
   );
 }
+
