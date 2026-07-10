@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
 
+from app.agents.reasoning import propose_control_for_obligation
 from app.api.deps import get_current_firm
 from app.db.base import get_db
 from app.db.models import Control, Document, Firm, Obligation, ObligationTest
@@ -73,6 +74,71 @@ def func_lower(col):
     return func.lower(col)
 
 
+def _existing_control_for(db: Session, firm_id: str, obligation_id: str) -> Control | None:
+    """Return the firm's Control that already references this obligation, if any."""
+    controls = db.execute(select(Control).where(Control.firm_id == firm_id)).scalars().all()
+    for c in controls:
+        if obligation_id in (c.obligation_ids or []):
+            return c
+    return None
+
+
+def _adopt_obligation(db: Session, firm: Firm, o: Obligation) -> Control:
+    """Store the approved law in the firm's live compliance record.
+
+    Creates a new Control drafted by the LLM (deterministic fallback if the LLM
+    is unavailable). Idempotent: if a Control for this (firm, obligation)
+    already exists, returns it unchanged.
+    """
+    existing = _existing_control_for(db, firm.id, o.id)
+    if existing:
+        return existing
+
+    draft = propose_control_for_obligation(
+        {
+            "verbatim_text": o.verbatim_text,
+            "normalized_statement": o.normalized_statement,
+            "modality": o.modality,
+            "deadline_or_periodicity": o.deadline_or_periodicity,
+            "threshold": o.threshold,
+            "clause_path": o.clause_path,
+        }
+    )
+    control = Control(
+        firm_id=firm.id,
+        obligation_ids=[o.id],
+        description=draft["description"],
+        type=draft["type"],
+        owner_role=draft["owner_role"],
+        frequency=draft["frequency"],
+        status="active",
+    )
+    db.add(control)
+    db.flush()
+    return control
+
+
+def _retract_obligation(db: Session, firm_id: str, obligation_id: str) -> str | None:
+    """Undo adoption when a previously-approved obligation is rejected.
+
+    Removes the obligation from every one of the firm's Controls that reference
+    it. Any Control left with no obligations is retired (status='retired'), not
+    deleted — so the audit trail for prior evidence still resolves.
+    Returns the id of a modified control (for audit payload) or None.
+    """
+    controls = db.execute(select(Control).where(Control.firm_id == firm_id)).scalars().all()
+    touched: str | None = None
+    for c in controls:
+        ids = list(c.obligation_ids or [])
+        if obligation_id in ids:
+            ids = [i for i in ids if i != obligation_id]
+            c.obligation_ids = ids
+            if not ids:
+                c.status = "retired"
+            touched = c.id
+    return touched
+
+
 @router.post("/{obligation_id}/decision")
 def decide_obligation(
     obligation_id: str,
@@ -81,25 +147,57 @@ def decide_obligation(
     db: Session = Depends(get_db),
 ):
     """Human-in-the-loop: the compliance officer accepts or rejects an extracted
-    obligation. Only accepted obligations enter the firm's live compliance record."""
+    obligation.
+
+    On ``approve`` the obligation is written into the firm's live compliance
+    record as a Control (drafted by the LLM). Idempotent: repeated approvals
+    do not create duplicate Controls. On ``reject`` any Control that had
+    previously adopted this obligation is unlinked (and retired if empty)."""
     o = db.get(Obligation, obligation_id)
     if not o:
         raise HTTPException(404, "obligation not found")
     if body.decision not in {"approve", "reject"}:
         raise HTTPException(400, "decision must be approve|reject")
+
     before = o.status
     o.status = "approved" if body.decision == "approve" else "rejected"
-    audit.record(
-        db,
-        action=f"obligation.{body.decision}d",
-        payload={"obligation_id": o.id, "clause_path": o.clause_path},
-        firm_id=firm.id,
-        actor=firm.name,
-        before_hash=before,
-        after_hash=o.status,
-    )
+
+    control_id: str | None = None
+    if body.decision == "approve":
+        control = _adopt_obligation(db, firm, o)
+        control_id = control.id
+        audit.record(
+            db,
+            action="obligation.adopted",
+            payload={
+                "obligation_id": o.id,
+                "clause_path": o.clause_path,
+                "control_id": control.id,
+                "control_description": control.description,
+            },
+            firm_id=firm.id,
+            actor=firm.name,
+            before_hash=before,
+            after_hash=o.status,
+        )
+    else:
+        touched = _retract_obligation(db, firm.id, o.id)
+        audit.record(
+            db,
+            action="obligation.rejected",
+            payload={
+                "obligation_id": o.id,
+                "clause_path": o.clause_path,
+                "retracted_control_id": touched,
+            },
+            firm_id=firm.id,
+            actor=firm.name,
+            before_hash=before,
+            after_hash=o.status,
+        )
+
     db.commit()
-    return {"id": o.id, "status": o.status}
+    return {"id": o.id, "status": o.status, "control_id": control_id}
 
 
 @router.get("/{obligation_id}")

@@ -101,6 +101,8 @@ export const api = {
   // compliance
   evaluate: (firmId: string) => request<Evaluation>(`/firms/${firmId}/compliance/evaluate`),
   gaps: (firmId: string) => request<Gap[]>(`/firms/${firmId}/compliance/gaps`),
+  suggestions: (firmId: string, limit = 100) =>
+    request<Suggestions>(`/firms/${firmId}/compliance/suggestions?limit=${limit}`),
   timeMachine: (firmId: string, asOf: string) =>
     request<Evaluation>(`/firms/${firmId}/compliance/time-machine?as_of=${encodeURIComponent(asOf)}`),
 
@@ -116,6 +118,8 @@ export const api = {
     request<ChangeRequest[]>(`/firms/${firmId}/change-impact`, { method: "POST", body: JSON.stringify({ change_event_ids: changeEventIds }) }),
   checkDatabaseAgainstDocument: (firmId: string, documentId?: string) =>
     request<{ action_items_created: number; drafts: ChangeRequest[] }>(`/firms/${firmId}/check-database${documentId ? `?document_id=${documentId}` : ""}`, { method: "POST" }),
+  rescanImpact: (firmId: string, documentId?: string) =>
+    request<RescanResult>(`/firms/${firmId}/change-impact/rescan${documentId ? `?document_id=${documentId}` : ""}`, { method: "POST" }),
 
 
 
@@ -179,10 +183,56 @@ export type ObligationDetail = {
 export type TestResult = { obligation_id: string; clause_path: string; modality: string; status: string; detail: string; spec: unknown };
 export type Gap = { id?: string; obligation_id: string; reason: string; severity: string; detail: string };
 export type Evaluation = { results: TestResult[]; gaps: Gap[]; readiness: Readiness; total: number; as_of: string };
+export type Suggestion = {
+  obligation_id: string;
+  clause_path: string;
+  verbatim_text: string;
+  normalized_statement: string;
+  modality: string;
+  deadline_or_periodicity: string | null;
+  threshold: string | null;
+  applies_to: { category: string; tier: string | null }[];
+  citation: Record<string, unknown>;
+  citation_fidelity: number;
+  status: string;
+  source_document: { id: string; title: string | null; circular_number: string | null; category: string | null } | null;
+};
+export type Suggestions = { total: number; items: Suggestion[] };
+export type ChangeEventSide = {
+  obligation_id: string | null;
+  text: string | null;
+  clause_path: string | null;
+  verbatim_text: string | null;
+  citation: Record<string, unknown>;
+};
+export type ChangeEventBrief = {
+  id: string;
+  type: "added" | "amended" | "removed" | string;
+  similarity: number;
+  field_changes: Record<string, { old: unknown; new: unknown }>;
+  from_document: { id: string; title: string | null; circular_number: string | null } | null;
+  to_document: { id: string; title: string | null; circular_number: string | null } | null;
+  old: ChangeEventSide | null;
+  new: ChangeEventSide | null;
+};
 export type ChangeRequest = {
-  id: string; change_event_id: string | null; operational_action_text: string;
-  citation: Record<string, unknown>; affected_controls: string[]; affected_tests: string[];
-  status: string; approved_by: string | null; approved_at: string | null;
+  id: string;
+  firm_id: string;
+  change_event_id: string | null;
+  operational_action_text: string;
+  citation: Record<string, unknown>;
+  affected_controls: string[];
+  affected_tests: string[];
+  status: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  recorded_at: string | null;
+  change_event: ChangeEventBrief | null;
+};
+export type RescanResult = {
+  scanned_documents: number;
+  action_items_created: number;
+  drafts: ChangeRequest[];
 };
 export type InspectionReport = {
   report_id: string; theme: string; scope_size: number; readiness: Readiness;

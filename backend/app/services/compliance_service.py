@@ -3,6 +3,10 @@
 Runs the compiled Obligation Tests against the firm's evidence, classifies gaps
 deterministically, computes a health score, and answers point-in-time queries
 using the bitemporal register.
+
+Also produces adoption Suggestions: canonical obligations that fit the firm's
+category but have not yet been approved into its live compliance record. This
+is what turns the platform from a passive checker into an active recommender.
 """
 from __future__ import annotations
 
@@ -12,7 +16,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.agents.scoring import score_readiness
-from app.db.models import Control, Evidence, Gap, Obligation, ObligationTest
+from app.db.models import Control, Document, Evidence, Gap, Obligation, ObligationTest
 from app.kernel.gaps import GapFinding, classify_gaps, health_score
 from app.kernel.obligation_tests import evaluate_test
 from app.services import audit
@@ -22,40 +26,53 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def firm_obligations(db: Session, firm_id: str, category: str, as_of: datetime | None = None) -> list[Obligation]:
-    """Obligations in the firm's scope: those referenced by its controls, plus
-    canonical obligations whose applies_to includes the firm's category. Only
-    obligations valid/known as of `as_of` (bitemporal)."""
-    controls = db.execute(select(Control).where(Control.firm_id == firm_id)).scalars().all()
+def _active_firm_controls(db: Session, firm_id: str) -> list[Control]:
+    """Return the firm's active Controls (skip retired) — one DB call."""
+    return db.execute(
+        select(Control).where(Control.firm_id == firm_id, Control.status == "active")
+    ).scalars().all()
+
+
+def _controls_by_obligation(controls: list[Control]) -> dict[str, list[Control]]:
+    """Build an obligation_id -> [Control, ...] index from an already-fetched
+    list of the firm's controls."""
+    idx: dict[str, list[Control]] = {}
+    for c in controls:
+        for oid in c.obligation_ids or []:
+            idx.setdefault(oid, []).append(c)
+    return idx
+
+
+def firm_obligations(
+    db: Session,
+    firm_id: str,
+    category: str,  # kept for signature compat; scope is now Control-driven
+    as_of: datetime | None = None,
+) -> list[Obligation]:
+    """Return every obligation this firm has ADOPTED into its live compliance
+    record.
+
+    Adopted = there is an active Control for the firm whose ``obligation_ids``
+    list includes the obligation. The canonical library plus applies_to
+    matching is now surfaced separately through the Compliance Suggestions
+    endpoint — it does not silently enter Compliance & Tests any more.
+
+    ``as_of`` still applies the bitemporal valid-time window so the Time
+    Machine reconstructs what was in force at that instant.
+    """
+    controls = _active_firm_controls(db, firm_id)
     linked_ids: set[str] = set()
     for c in controls:
         linked_ids.update(c.obligation_ids or [])
+    if not linked_ids:
+        return []
 
-    stmt = select(Obligation).where(Obligation.status.in_(["verified", "approved", "flagged"]))
+    stmt = select(Obligation).where(Obligation.id.in_(list(linked_ids)))
     if as_of:
         # Valid-time reconstruction: which rule was IN FORCE as of `as_of`.
         stmt = stmt.where(or_(Obligation.valid_from.is_(None), Obligation.valid_from <= as_of))
         stmt = stmt.where(or_(Obligation.valid_to.is_(None), Obligation.valid_to > as_of))
-    obligations = db.execute(stmt).scalars().all()
-
-    scoped = []
-    for o in obligations:
-        cats = {str(a.get("category", "")).lower() for a in (o.applies_to or [])}
-        if (
-            o.id in linked_ids
-            or category.lower() in cats
-            or "all" in cats
-            or "any" in cats
-            or not cats
-        ):
-            scoped.append(o)
-    return scoped
-
-
-
-def _controls_for_obligation(db: Session, firm_id: str, obligation_id: str) -> list[Control]:
-    controls = db.execute(select(Control).where(Control.firm_id == firm_id)).scalars().all()
-    return [c for c in controls if obligation_id in (c.obligation_ids or [])]
+    return list(db.execute(stmt).scalars().all())
 
 
 def _evidence_dicts(db: Session, firm_id: str, control_ids: list[str], as_of: datetime | None) -> list[dict]:
@@ -79,9 +96,14 @@ def _evidence_dicts(db: Session, firm_id: str, control_ids: list[str], as_of: da
 
 def evaluate_firm(db: Session, firm_id: str, category: str, as_of: datetime | None = None) -> dict:
     """Evaluate every in-scope obligation's test against evidence as of a time.
-    Returns {results, gaps, health, total}."""
+    Returns {results, gaps, readiness, total, as_of}."""
     as_of = as_of or _now()
     obligations = firm_obligations(db, firm_id, category, as_of)
+
+    # Fetch the firm's controls ONCE and build an obligation->controls index,
+    # instead of hitting the DB per obligation.
+    all_controls = _active_firm_controls(db, firm_id)
+    ctrl_index = _controls_by_obligation(all_controls)
 
     results: list[dict] = []
     gap_inputs: list[dict] = []
@@ -92,7 +114,7 @@ def evaluate_firm(db: Session, firm_id: str, category: str, as_of: datetime | No
         ).scalars().first()
         spec = test.spec if test else None
 
-        controls = _controls_for_obligation(db, firm_id, ob.id)
+        controls = ctrl_index.get(ob.id, [])
         control_ids = [c.id for c in controls]
         evidence = _evidence_dicts(db, firm_id, control_ids, as_of)
 
@@ -181,3 +203,97 @@ def refresh_gaps(db: Session, firm_id: str, category: str) -> dict:
 def point_in_time(db: Session, firm_id: str, category: str, as_of: datetime) -> dict:
     """Answer: 'what was required and what evidence existed as of date X?'"""
     return evaluate_firm(db, firm_id, category, as_of=as_of)
+
+
+
+def _obligation_applies_to_firm(obligation: Obligation, firm_category: str) -> bool:
+    """True when the obligation binds a firm of ``firm_category``.
+
+    Rules:
+    - Empty applies_to list => generic obligation, applies to everyone.
+    - "all"/"any" category entry => applies to everyone.
+    - Otherwise, the firm's own category (case-insensitive) must appear.
+    """
+    entries = obligation.applies_to or []
+    if not entries:
+        return True
+    cats = {str(a.get("category", "")).lower() for a in entries}
+    if "all" in cats or "any" in cats:
+        return True
+    return firm_category.lower() in cats
+
+
+def suggest_obligations(
+    db: Session,
+    firm_id: str,
+    firm_category: str,
+    limit: int = 100,
+) -> list[dict]:
+    """Return canonical obligations RuleFlow recommends the firm adopt next.
+
+    Selection criteria:
+    1. Obligation is grounded (status in {'verified','approved'}) — flagged and
+       rejected are excluded.
+    2. applies_to includes the firm's category (or is generic).
+    3. The firm has no active Control referencing this obligation yet.
+
+    Ordered by clause_path so it reads like a table of contents. The response
+    embeds the source document title/circular so the UI can render it directly
+    without a second call.
+    """
+    # 1. Grounded obligations only.
+    stmt = (
+        select(Obligation)
+        .where(Obligation.status.in_(["verified", "approved"]))
+        .order_by(Obligation.clause_path)
+        .limit(max(limit, 1) * 4)  # room for post-filter shrinkage
+    )
+    candidates = list(db.execute(stmt).scalars().all())
+    if not candidates:
+        return []
+
+    # 2. What has the firm already adopted?
+    adopted: set[str] = set()
+    for c in _active_firm_controls(db, firm_id):
+        adopted.update(c.obligation_ids or [])
+
+    # 3. Preload source documents in one call.
+    doc_ids = {o.source_document_id for o in candidates}
+    docs = {
+        d.id: d
+        for d in db.execute(select(Document).where(Document.id.in_(list(doc_ids)))).scalars().all()
+    }
+
+    suggestions: list[dict] = []
+    for o in candidates:
+        if o.id in adopted:
+            continue
+        if not _obligation_applies_to_firm(o, firm_category):
+            continue
+        doc = docs.get(o.source_document_id)
+        suggestions.append(
+            {
+                "obligation_id": o.id,
+                "clause_path": o.clause_path,
+                "verbatim_text": o.verbatim_text,
+                "normalized_statement": o.normalized_statement,
+                "modality": o.modality,
+                "deadline_or_periodicity": o.deadline_or_periodicity,
+                "threshold": o.threshold,
+                "applies_to": o.applies_to or [],
+                "citation": o.citation or {},
+                "citation_fidelity": o.citation_fidelity,
+                "status": o.status,
+                "source_document": {
+                    "id": doc.id if doc else o.source_document_id,
+                    "title": doc.title if doc else None,
+                    "circular_number": doc.circular_number if doc else None,
+                    "category": doc.category if doc else None,
+                }
+                if doc
+                else None,
+            }
+        )
+        if len(suggestions) >= limit:
+            break
+    return suggestions

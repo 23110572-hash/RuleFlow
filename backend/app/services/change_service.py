@@ -432,83 +432,129 @@ def scan_firm_database_for_changes(
     return drafts
 
 
+def _adopted_obligations_for_firm(db: Session, firm_id: str) -> list[Obligation]:
+    """Return the obligations this firm has adopted (via active Controls)."""
+    controls = db.execute(
+        select(Control).where(Control.firm_id == firm_id, Control.status == "active")
+    ).scalars().all()
+    ob_ids: set[str] = set()
+    for c in controls:
+        if c.obligation_ids:
+            ob_ids.update(c.obligation_ids)
+    if not ob_ids:
+        return []
+    return list(
+        db.execute(select(Obligation).where(Obligation.id.in_(list(ob_ids)))).scalars().all()
+    )
+
+
+def _existing_impact_event(
+    db: Session,
+    *,
+    from_document_id: str | None,
+    to_document_id: str,
+    old_ob_id: str | None,
+    new_ob_id: str | None,
+) -> ChangeEvent | None:
+    """Idempotency: has a ChangeEvent for this exact (from_doc, to_doc,
+    old_ob, new_ob) pair already been recorded?"""
+    stmt = select(ChangeEvent).where(ChangeEvent.to_document_id == to_document_id)
+    if from_document_id is not None:
+        stmt = stmt.where(ChangeEvent.from_document_id == from_document_id)
+    for ev in db.execute(stmt).scalars().all():
+        if (ev.old_version or {}).get("id") == old_ob_id and (ev.new_version or {}).get("id") == new_ob_id:
+            return ev
+    return None
+
+
+def detect_impact_on_adopted_obligations(
+    db: Session, new_document_id: str, firm_id: str
+) -> list[dict]:
+    """Compare a newly ingested document's obligations against everything the
+    firm has already ADOPTED (i.e. has an active Control for) and raise an
+    action item wherever a followed rule is amended or removed.
+
+    This is the core Action Items behaviour: "does this new law affect any of
+    my existing followed laws?". Newly *added* obligations are intentionally
+    NOT surfaced here — they show up as adoption Suggestions on the Compliance
+    page instead. Idempotent: re-running for the same (document, firm) pair
+    will not create duplicate ChangeEvents or ChangeRequests.
+    """
+    document = db.get(Document, new_document_id)
+    if document is None:
+        return []
+
+    new_obs = db.execute(
+        select(Obligation).where(Obligation.source_document_id == new_document_id)
+    ).scalars().all()
+    if not new_obs:
+        return []
+
+    adopted = _adopted_obligations_for_firm(db, firm_id)
+    if not adopted:
+        return []
+
+    diff_result = diff_obligations(
+        [_ob_dict(o) for o in adopted], [_ob_dict(n) for n in new_obs]
+    )
+
+    # Only amended or removed rules are "impact on what the firm follows".
+    changes = diff_result.amended + diff_result.removed
+    if not changes:
+        return []
+
+    old_by_id = {o.id: o for o in adopted}
+    new_change_event_ids: list[str] = []
+
+    for change in changes:
+        old_ob = old_by_id.get(change.old_id) if change.old_id else None
+        from_doc_id = old_ob.source_document_id if old_ob else None
+
+        existing = _existing_impact_event(
+            db,
+            from_document_id=from_doc_id,
+            to_document_id=document.id,
+            old_ob_id=change.old_id,
+            new_ob_id=change.new_id,
+        )
+        if existing is not None:
+            continue  # already tracked; don't duplicate
+
+        ev = ChangeEvent(
+            obligation_id=change.new_id or change.old_id,
+            from_document_id=from_doc_id,
+            to_document_id=document.id,
+            type=change.type,
+            old_version={"id": change.old_id, "text": change.old_text} if change.old_id else None,
+            new_version={"id": change.new_id, "text": change.new_text} if change.new_id else None,
+            similarity=change.similarity,
+            field_changes=change.field_changes,
+        )
+        db.add(ev)
+        db.flush()
+        new_change_event_ids.append(ev.id)
+
+    if not new_change_event_ids:
+        return []
+
+    return operational_impact(db, firm_id, new_change_event_ids)
+
+
 def auto_change_detection(db: Session, document: Document) -> list[dict]:
+    """Multi-firm fan-out of ``detect_impact_on_adopted_obligations``.
 
-    """Auto-detect changes against rules each firm actually follows.
-
-    Compares the newly uploaded document's obligations against the obligations
-    already mapped to each firm's controls. If any of those followed rules
-    are amended or removed, a change request is created for the firm.
+    Runs the impact check for every firm in the tenant so a single new upload
+    populates Action Items across all firms that already follow related rules.
+    Firms with no adopted obligations are skipped cheaply.
     """
     import structlog
     log = structlog.get_logger()
 
-    new_obs = db.execute(
-        select(Obligation).where(Obligation.source_document_id == document.id)
-    ).scalars().all()
-
-    if not new_obs:
-        log.info("auto_change_detection.no_new_obligations", document_id=document.id)
-        return []
-
-    new_dicts = [_ob_dict(n) for n in new_obs]
-    all_firms = db.execute(select(Firm)).scalars().all()
     all_drafts: list[dict] = []
-
-    for firm in all_firms:
-        # Get all controls for this firm
-        controls = db.execute(
-            select(Control).where(Control.firm_id == firm.id)
-        ).scalars().all()
-
-        # Find all unique obligation IDs currently mapped to this firm's controls
-        active_ob_ids = set()
-        for c in controls:
-            if c.obligation_ids:
-                active_ob_ids.update(c.obligation_ids)
-
-        if not active_ob_ids:
-            continue
-
-        # Fetch the actual active obligations
-        active_obs = db.execute(
-            select(Obligation).where(Obligation.id.in_(list(active_ob_ids)))
-        ).scalars().all()
-
-        if not active_obs:
-            continue
-
-        old_dicts = [_ob_dict(o) for o in active_obs]
-
-        # Diff the active obligations against the new document's obligations
-        diff_result = diff_obligations(old_dicts, new_dicts)
-
-        # We care about changes to rules they already follow (amended/removed)
-        changes = diff_result.amended + diff_result.removed
-        if not changes:
-            continue
-
-        change_event_ids = []
-        for change in changes:
-            old_ob = next((o for o in active_obs if o.id == change.old_id), None)
-            from_doc_id = old_ob.source_document_id if old_ob else None
-
-            ev = ChangeEvent(
-                obligation_id=change.new_id or change.old_id,
-                from_document_id=from_doc_id,
-                to_document_id=document.id,
-                type=change.type,
-                old_version={"id": change.old_id, "text": change.old_text} if change.old_id else None,
-                new_version={"id": change.new_id, "text": change.new_text} if change.new_id else None,
-                similarity=change.similarity,
-                field_changes=change.field_changes,
-            )
-            db.add(ev)
-            db.flush()
-            change_event_ids.append(ev.id)
-
-        if change_event_ids:
-            drafts = operational_impact(db, firm.id, change_event_ids)
+    firms = db.execute(select(Firm)).scalars().all()
+    for firm in firms:
+        drafts = detect_impact_on_adopted_obligations(db, document.id, firm.id)
+        if drafts:
             all_drafts.extend(drafts)
             log.info(
                 "auto_change_detection.impact_generated",

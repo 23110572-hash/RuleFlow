@@ -60,21 +60,36 @@ def seeded(db):
 def test_compliance_flow_detects_and_closes_gaps(client, seeded):
     firm_id, o1, o2 = seeded["firm_id"], seeded["o1"], seeded["o2"]
 
-    # No controls/evidence yet -> both obligations are gaps (missing, critical).
-    ev = client.get(f"/firms/{firm_id}/compliance/evaluate").json()
-    assert ev["total"] == 2
-    assert ev["readiness"]["score"] < 100  # computed fallback when no LLM key in tests
-    assert all(g["reason"] == "missing" for g in ev["gaps"])
+    # New adoption model: obligations enter Compliance & Tests only after the
+    # firm has explicitly adopted them (by creating a Control). Before that,
+    # nothing is scored — unadopted category matches now show up under
+    # /compliance/suggestions instead.
+    ev0 = client.get(f"/firms/{firm_id}/compliance/evaluate").json()
+    assert ev0["total"] == 0
+    assert ev0["gaps"] == []
 
-    # Add a control for the monthly-margin obligation + fresh evidence -> green.
+    # The firm SEES the two obligations as adoption suggestions (matches its
+    # category and no Control links them yet).
+    sug = client.get(f"/firms/{firm_id}/compliance/suggestions").json()
+    assert sug["total"] == 2
+    assert {s["obligation_id"] for s in sug["items"]} == {o1, o2}
+
+    # Adopt the monthly-margin obligation via a Control, then evaluate: no
+    # evidence yet -> gap of reason 'missing'.
     ctrl = client.post(f"/firms/{firm_id}/controls", json={
         "obligation_ids": [o1], "description": "Monthly margin report job", "frequency": "monthly",
     }).json()
+    ev1 = client.get(f"/firms/{firm_id}/compliance/evaluate").json()
+    assert ev1["total"] == 1
+    assert all(g["reason"] == "missing" for g in ev1["gaps"])
+    assert ev1["readiness"]["score"] is None or ev1["readiness"]["score"] < 100
+
+    # Attach fresh evidence -> the monthly obligation goes green.
     client.post(f"/firms/{firm_id}/evidence", json={
         "control_id": ctrl["id"], "description": "March margin report",
         "captured_at": (NOW - timedelta(days=5)).isoformat(),
     })
-    # Add control + evidence for net-worth threshold, but FAILING the >=20% test.
+    # Adopt the second obligation and attach evidence that FAILS the >=20% test.
     ctrl2 = client.post(f"/firms/{firm_id}/controls", json={
         "obligation_ids": [o2], "description": "Net worth monitor", "frequency": "daily",
     }).json()
@@ -84,11 +99,16 @@ def test_compliance_flow_detects_and_closes_gaps(client, seeded):
     })
 
     ev2 = client.get(f"/firms/{firm_id}/compliance/evaluate").json()
+    assert ev2["total"] == 2
     by_ob = {r["obligation_id"]: r for r in ev2["results"]}
     assert by_ob[o1]["status"] == "green"          # monthly report satisfied
     assert by_ob[o2]["status"] == "red"            # threshold violated
     reasons = {g["obligation_id"]: g["reason"] for g in ev2["gaps"]}
     assert reasons.get(o2) == "contradictory"
+
+    # Once adopted, they no longer appear in Suggestions.
+    sug2 = client.get(f"/firms/{firm_id}/compliance/suggestions").json()
+    assert sug2["total"] == 0
 
 
 def test_time_machine_reconstructs_past(client, seeded):
