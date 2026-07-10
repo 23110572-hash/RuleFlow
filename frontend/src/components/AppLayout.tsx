@@ -20,10 +20,10 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: "/app/documents", label: "Regulations", icon: FileText },
   { to: "/app/obligations", label: "Obligations", icon: ListChecks },
-  { to: "/app/approvals", label: "Approvals", icon: CheckSquare },
+  { to: "/app/approvals", label: "Approvals", icon: CheckSquare, gated: true },
   { to: "/app/change-requests", label: "Action items", icon: GitPullRequest, gated: true },
   { to: "/app/compliance", label: "Compliance", icon: ShieldCheck, gated: true },
-  { to: "/app/audit", label: "Audit trail", icon: ScrollText },
+  { to: "/app/audit", label: "Activity", icon: ScrollText },
   { to: "/app/overview", label: "Overview", icon: LayoutDashboard },
 ];
 

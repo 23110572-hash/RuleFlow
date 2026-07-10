@@ -51,7 +51,7 @@ export default function App() {
           <Route path="overview" element={<Dashboard />} />
           <Route path="documents" element={<Documents />} />
           <Route path="obligations" element={<Obligations />} />
-          <Route path="approvals" element={<Approvals />} />
+          <Route path="approvals" element={<RequireDataSource><Approvals /></RequireDataSource>} />
           <Route path="change-requests" element={<RequireDataSource><ChangeRequests /></RequireDataSource>} />
           <Route path="compliance" element={<RequireDataSource><Compliance /></RequireDataSource>} />
           <Route path="audit" element={<Audit />} />

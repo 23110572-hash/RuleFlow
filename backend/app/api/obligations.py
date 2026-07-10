@@ -12,7 +12,7 @@ from app.api.deps import get_current_firm
 from app.db.base import get_db
 from app.db.models import Control, Document, Firm, Obligation, ObligationTest
 from app.schemas.models import ObligationOut
-from app.services import audit
+from app.services import audit, datasource_service
 
 router = APIRouter(prefix="/obligations", tags=["obligations"])
 
@@ -158,6 +158,14 @@ def decide_obligation(
         raise HTTPException(404, "obligation not found")
     if body.decision not in {"approve", "reject"}:
         raise HTTPException(400, "decision must be approve|reject")
+
+    # Approving writes the obligation into the firm's live compliance record
+    # (as a Control), so a data source must be connected first. We gate the
+    # whole decision workflow to match the locked Approvals page in the UI.
+    if not datasource_service.firm_has_data_source(db, firm.id):
+        raise HTTPException(
+            403, "Connect your firm's data source (Settings) before approving obligations."
+        )
 
     before = o.status
     o.status = "approved" if body.decision == "approve" else "rejected"
