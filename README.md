@@ -103,32 +103,32 @@ Nothing in that chain is a shortcut. Every arrow is real code doing real work on
 ## 5. Architecture — every layer
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────┐
 │  Frontend  — React SPA, the compliance officer's workbench     │
 │  upload · review · approve · watch the live compliance picture │
 └───────────────────────────────┬────────────────────────────────┘
                                  │  typed REST (Bearer auth)
-┌───────────────────────────────▼────────────────────────────────┐
-│  API Layer — FastAPI, thin & stateless                          │
-│  authenticate → resolve the caller's firm → delegate to a service│
-└───────────────────────────────┬────────────────────────────────┘
+┌───────────────────────────────▼───────────────────────────────────┐
+│  API Layer — FastAPI, thin & stateless                            │
+│  authenticate → resolve the caller's firm → delegate to a service │
+└───────────────────────────────┬───────────────────────────────────┘
                                  │
         ┌────────────────────────┼────────────────────────┐
         ▼                        ▼                        ▼
-┌───────────────┐      ┌──────────────────┐      ┌────────────────┐
+┌───────────────┐      ┌───────────────────┐      ┌────────────────┐
 │  Agent Layer  │      │ Verification      │      │   Services     │
 │  (LLM here    │─────►│ Kernel            │─────►│  orchestrate   │
-│   only)       │ props│ (zero LLM, pure   │verify│  kernel+agents │
+│   only)       │props │ (zero LLM, pure   │verify│  kernel+agents │
 │               │      │  deterministic)   │      │  +db per flow  │
-└───────────────┘      └──────────────────┘      └───────┬────────┘
+└───────────────┘      └───────────────────┘      └───────┬────────┘
                                                           │
                               ┌───────────────────────────┼──────────────┐
                               ▼                                           ▼
-                   ┌────────────────────┐                     ┌──────────────────────────┐
+                   ┌─────────────────────┐                    ┌──────────────────────────┐
                    │  RuleFlow database  │                    │  The FIRM'S OWN database │
                    │  (Neon Postgres):   │                    │  connected by the firm:  │
                    │  canonical + overlay│                    │  evidence read IN,       │
-                   │  bitemporal         │                    │  adopted rules          written OUT          │                    │
+                   │  bitemporal         │                    │  adopted rules           │ 
                    └─────────────────────┘                    └──────────────────────────┘
 ```
 
