@@ -22,9 +22,8 @@ This is the full story of what I built, why I built it this way, and how every l
 10. [Connecting a firm's own database](#10-connecting-a-firms-own-database)
 11. [What makes this different](#11-what-makes-this-different)
 12. [Tech stack](#12-tech-stack)
-13. [Running it locally](#13-running-it-locally)
-14. [Repository layout](#14-repository-layout)
-15. [My integrity promise](#15-my-integrity-promise)
+13. [Repository layout](#14-repository-layout)
+
 
 ---
 
@@ -125,12 +124,12 @@ Nothing in that chain is a shortcut. Every arrow is real code doing real work on
                                                           │
                               ┌───────────────────────────┼──────────────┐
                               ▼                                           ▼
-                   ┌────────────────────┐                    ┌────────────────────────┐
+                   ┌────────────────────┐                     ┌──────────────────────────┐
                    │  RuleFlow database  │                    │  The FIRM'S OWN database │
                    │  (Neon Postgres):   │                    │  connected by the firm:  │
                    │  canonical + overlay│                    │  evidence read IN,       │
-                   │  bitemporal         │                    │  adopted rules written OUT│
-                   └────────────────────┘                    └────────────────────────┘
+                   │  bitemporal         │                    │  adopted rules          written OUT          │                    │
+                   └─────────────────────┘                    └──────────────────────────┘
 ```
 
 Let me walk each layer.
@@ -252,45 +251,8 @@ I kept the writes namespaced to a single, clearly-named table and made them idem
 
 **Data & infra** — PostgreSQL (Neon, serverless) as the primary store, SQLite for zero-setup local dev and tests, Render for the backend, Vercel for the frontend.
 
-## 13. Running it locally
 
-**Backend**
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate        # Windows  (source .venv/bin/activate on macOS/Linux)
-pip install -r requirements.txt
-
-# create backend/.env
-#   DATABASE_URL=sqlite:///./ruleflow.db      # or a Postgres URL
-#   GROQ_API_KEY=...    (or OPENROUTER_API_KEY=... and set LLM_MODEL=openrouter/...)
-
-uvicorn app.main:app --reload
-```
-
-Tables are created automatically on startup, so SQLite gives you a working instance with zero infrastructure. The API comes up at `http://localhost:8000` (`/health` to confirm, `/docs` for the interactive API).
-
-**Frontend**
-
-```bash
-cd frontend
-npm install
-npm run dev                    # http://localhost:5173
-```
-
-Point it at the backend with `VITE_API_URL` if you're not on the default.
-
-**Tests**
-
-```bash
-cd backend
-pytest
-```
-
-The suite covers the kernel (citation, coverage, diff, gaps, tests) and full service-level flows end to end, all on SQLite with no network calls — the deterministic parts are tested deterministically.
-
-## 14. Repository layout
+## 13. Repository layout
 
 ```text
 backend/
@@ -322,13 +284,4 @@ render.yaml       backend deployment blueprint
 vercel.json       frontend SPA routing
 ```
 
-## 15. My integrity promise
 
-Every number this platform shows is computed live from real input. There is no demo mode and no scripted path.
-
-- Uploading a real SEBI master circular runs the real parser, the real clause segmenter, the real extraction agent, the real citation gate, and writes real rows.
-- Citation fidelity is a genuine similarity computation against the source text, re-read at verification time — not a field the model fills in.
-- The Coverage Certificate is a real sweep of the actual document; the unaccounted sentences it lists are real sentences from that document.
-- Approving an obligation really does write into the firm's connected database, and rejecting really removes it.
-
-The synthetic firm I use in demos is fictional, but every computation applied to it — evidence matching, gap classification, scoring, diffing, write-back — is the exact same code that runs against a real firm's real data. I built it this way because a compliance tool that fakes even one number isn't a compliance tool. That was the whole point.
