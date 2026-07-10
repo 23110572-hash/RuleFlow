@@ -171,9 +171,35 @@ def decide_obligation(
     o.status = "approved" if body.decision == "approve" else "rejected"
 
     control_id: str | None = None
+    source_write: dict = {"ok": False}
     if body.decision == "approve":
         control = _adopt_obligation(db, firm, o)
         control_id = control.id
+
+        # Write the adopted law into the firm's OWN connected database so their
+        # systems see it. Non-fatal: the Control (RuleFlow's record) is kept
+        # even if the external write fails; the error is surfaced to the user.
+        doc = db.get(Document, o.source_document_id)
+        source_ref = (doc.circular_number or doc.title) if doc else ""
+        source_write = datasource_service.push_obligation_to_source(
+            db,
+            firm.id,
+            {
+                "id": o.id,
+                "clause_path": o.clause_path,
+                "normalized_statement": o.normalized_statement,
+                "verbatim_text": o.verbatim_text,
+                "modality": o.modality,
+                "deadline_or_periodicity": o.deadline_or_periodicity,
+                "threshold": o.threshold,
+                "source_document": source_ref,
+            },
+            {
+                "description": control.description,
+                "owner_role": control.owner_role,
+                "frequency": control.frequency,
+            },
+        )
         audit.record(
             db,
             action="obligation.adopted",
@@ -182,6 +208,9 @@ def decide_obligation(
                 "clause_path": o.clause_path,
                 "control_id": control.id,
                 "control_description": control.description,
+                "written_to_firm_database": source_write.get("ok", False),
+                "firm_database_table": source_write.get("table"),
+                "firm_database_error": source_write.get("error"),
             },
             firm_id=firm.id,
             actor=firm.name,
@@ -190,6 +219,7 @@ def decide_obligation(
         )
     else:
         touched = _retract_obligation(db, firm.id, o.id)
+        source_write = datasource_service.remove_obligation_from_source(db, firm.id, o.id)
         audit.record(
             db,
             action="obligation.rejected",
@@ -197,6 +227,7 @@ def decide_obligation(
                 "obligation_id": o.id,
                 "clause_path": o.clause_path,
                 "retracted_control_id": touched,
+                "removed_from_firm_database": source_write.get("ok", False),
             },
             firm_id=firm.id,
             actor=firm.name,
@@ -205,7 +236,14 @@ def decide_obligation(
         )
 
     db.commit()
-    return {"id": o.id, "status": o.status, "control_id": control_id}
+    return {
+        "id": o.id,
+        "status": o.status,
+        "control_id": control_id,
+        "stored_in_your_database": bool(source_write.get("ok")),
+        "database_table": source_write.get("table"),
+        "database_error": source_write.get("error"),
+    }
 
 
 @router.get("/{obligation_id}")

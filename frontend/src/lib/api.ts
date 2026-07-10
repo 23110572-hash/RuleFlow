@@ -75,7 +75,7 @@ export const api = {
   },
   obligation: (id: string) => request<ObligationDetail>(`/obligations/${id}`),
   decideObligation: (id: string, decision: "approve" | "reject") =>
-    request<{ id: string; status: string }>(`/obligations/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
+    request<DecisionResult>(`/obligations/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
   ingestPdf: async (file: File, meta: { title: string; circular_number?: string; category?: string }) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -173,6 +173,14 @@ export type Obligation = {
   normalized_statement: string; modality: string; deadline_or_periodicity: string | null;
   threshold: string | null; applies_to: { category: string; tier: string | null }[];
   citation: Record<string, unknown>; citation_fidelity: number; status: string;
+};
+export type DecisionResult = {
+  id: string;
+  status: string;
+  control_id: string | null;
+  stored_in_your_database: boolean;
+  database_table: string | null;
+  database_error: string | null;
 };
 export type ObligationDetail = {
   obligation: Obligation;

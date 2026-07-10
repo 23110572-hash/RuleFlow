@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import DataSource, Evidence
@@ -221,3 +221,122 @@ def _parse(s: str) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+# ── Writing adopted obligations BACK into the firm's own database ──────────
+#
+# When a compliance officer approves an obligation, the adopted rule (and the
+# control drafted for it) is written into the firm's CONNECTED database so
+# their own systems and team can see the rules they've committed to. We use a
+# dedicated, namespaced table so we never touch the firm's existing tables.
+# Types are kept portable (VARCHAR/TEXT) so this works on PostgreSQL, MySQL and
+# SQLite alike. adopted_at is stored as an ISO string to avoid dialect-specific
+# timestamp handling.
+
+ADOPTED_OBLIGATIONS_TABLE = "ruleflow_adopted_obligations"
+
+_CREATE_ADOPTED_TABLE = f"""
+CREATE TABLE IF NOT EXISTS {ADOPTED_OBLIGATIONS_TABLE} (
+    obligation_id VARCHAR(64) PRIMARY KEY,
+    clause_path VARCHAR(255),
+    obligation TEXT,
+    verbatim_text TEXT,
+    modality VARCHAR(32),
+    deadline_or_periodicity VARCHAR(255),
+    threshold VARCHAR(255),
+    control TEXT,
+    control_owner VARCHAR(128),
+    control_frequency VARCHAR(64),
+    source_document VARCHAR(255),
+    adopted_at VARCHAR(40)
+)
+"""
+
+_INSERT_ADOPTED = f"""
+INSERT INTO {ADOPTED_OBLIGATIONS_TABLE}
+    (obligation_id, clause_path, obligation, verbatim_text, modality,
+     deadline_or_periodicity, threshold, control, control_owner,
+     control_frequency, source_document, adopted_at)
+VALUES
+    (:obligation_id, :clause_path, :obligation, :verbatim_text, :modality,
+     :deadline_or_periodicity, :threshold, :control, :control_owner,
+     :control_frequency, :source_document, :adopted_at)
+"""
+
+
+def _firm_source_engine(db: Session, firm_id: str):
+    """Return (engine, data_source) for the firm's connected DB, or (None, None)."""
+    ds = db.execute(
+        select(DataSource).where(DataSource.firm_id == firm_id)
+    ).scalars().first()
+    if not ds or not ds.connection_uri:
+        return None, None
+    engine = create_engine(_normalise_uri(ds.kind, ds.connection_uri), pool_pre_ping=True)
+    return engine, ds
+
+
+def push_obligation_to_source(
+    db: Session, firm_id: str, obligation: dict, control: dict
+) -> dict:
+    """Write (upsert) an approved obligation + its control into the firm's own
+    connected database, in the ``ruleflow_adopted_obligations`` table.
+
+    Idempotent: an existing row for the same obligation_id is replaced. Returns
+    {"ok": True, "table": ...} on success or {"ok": False, "error": ...} — the
+    caller decides whether a failure is fatal (approval keeps working either
+    way; the error is surfaced to the user)."""
+    engine, ds = _firm_source_engine(db, firm_id)
+    if engine is None:
+        return {"ok": False, "error": "No data source connected."}
+
+    params = {
+        "obligation_id": obligation["id"],
+        "clause_path": obligation.get("clause_path") or "",
+        "obligation": obligation.get("normalized_statement") or "",
+        "verbatim_text": obligation.get("verbatim_text") or "",
+        "modality": obligation.get("modality") or "",
+        "deadline_or_periodicity": obligation.get("deadline_or_periodicity") or "",
+        "threshold": obligation.get("threshold") or "",
+        "control": control.get("description") or "",
+        "control_owner": control.get("owner_role") or "",
+        "control_frequency": control.get("frequency") or "",
+        "source_document": obligation.get("source_document") or "",
+        "adopted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(_CREATE_ADOPTED_TABLE))
+        with engine.begin() as conn:
+            conn.execute(
+                text(f"DELETE FROM {ADOPTED_OBLIGATIONS_TABLE} WHERE obligation_id = :obligation_id"),
+                {"obligation_id": params["obligation_id"]},
+            )
+            conn.execute(text(_INSERT_ADOPTED), params)
+        if ds is not None:
+            ds.last_synced_at = datetime.now(timezone.utc)
+        return {"ok": True, "table": ADOPTED_OBLIGATIONS_TABLE}
+    except Exception as exc:  # pragma: no cover - depends on external DB
+        return {"ok": False, "error": str(exc)[:300]}
+    finally:
+        engine.dispose()
+
+
+def remove_obligation_from_source(db: Session, firm_id: str, obligation_id: str) -> dict:
+    """Delete a previously-adopted obligation row from the firm's connected
+    database (used when an obligation is rejected). Missing table/row is not an
+    error."""
+    engine, _ds = _firm_source_engine(db, firm_id)
+    if engine is None:
+        return {"ok": False, "error": "No data source connected."}
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(_CREATE_ADOPTED_TABLE))
+            conn.execute(
+                text(f"DELETE FROM {ADOPTED_OBLIGATIONS_TABLE} WHERE obligation_id = :obligation_id"),
+                {"obligation_id": obligation_id},
+            )
+        return {"ok": True, "table": ADOPTED_OBLIGATIONS_TABLE}
+    except Exception as exc:  # pragma: no cover - depends on external DB
+        return {"ok": False, "error": str(exc)[:300]}
+    finally:
+        engine.dispose()

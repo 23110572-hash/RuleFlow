@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, Quote, X } from "lucide-react";
-import { api, Obligation } from "@/lib/api";
+import { Check, CheckCircle2, Database, Quote, X, AlertTriangle } from "lucide-react";
+import { api, DecisionResult, Obligation } from "@/lib/api";
 import { Card, EmptyState, ModalityPill, PageHeader, Spinner } from "@/components/ui";
 import { TButton } from "@/components/motion";
 
@@ -12,9 +12,12 @@ const TABS = [
   { key: "rejected", label: "Rejected" },
 ];
 
+type Banner = { kind: "success" | "warning"; text: string };
+
 export default function Approvals() {
   const qc = useQueryClient();
   const [tab, setTab] = useState("verified");
+  const [banner, setBanner] = useState<Banner | null>(null);
   const { data = [], isLoading } = useQuery({
     queryKey: ["obligations", "status", tab],
     queryFn: () => api.obligations({ status: tab }),
@@ -22,9 +25,28 @@ export default function Approvals() {
 
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: string; decision: "approve" | "reject" }) => api.decideObligation(id, decision),
-    onSuccess: () => {
+    onSuccess: (res: DecisionResult, vars) => {
       TABS.forEach((t) => qc.invalidateQueries({ queryKey: ["obligations", "status", t.key] }));
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["suggestions"] });
+      qc.invalidateQueries({ queryKey: ["evaluate"] });
+      if (vars.decision === "approve") {
+        setBanner(
+          res.stored_in_your_database
+            ? { kind: "success", text: `Approved and written into your database (table "${res.database_table}").` }
+            : {
+                kind: "warning",
+                text: `Approved and added to your compliance record, but writing to your connected database failed: ${
+                  res.database_error ?? "unknown error"
+                }`,
+              }
+        );
+      } else {
+        setBanner({ kind: "success", text: "Obligation rejected and removed from your database." });
+      }
+    },
+    onError: (err: unknown) => {
+      setBanner({ kind: "warning", text: err instanceof Error ? err.message : String(err) });
     },
   });
 
@@ -32,8 +54,28 @@ export default function Approvals() {
     <div>
       <PageHeader
         title="Approvals"
-        subtitle="You decide what counts. Accept an obligation to add it to your live compliance record, or reject it if it doesn't apply."
+        subtitle="You decide what counts. Accept an obligation to write it into your connected database and compliance record, or reject it if it doesn't apply."
       />
+
+      {banner && (
+        <div
+          className={`mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
+            banner.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          {banner.kind === "success" ? (
+            <Database className="mt-0.5 h-4 w-4 flex-none" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+          )}
+          <span className="flex-1">{banner.text}</span>
+          <button onClick={() => setBanner(null)} className="flex-none text-ink-400 hover:text-ink-700">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <div className="mb-5 flex gap-1 rounded-xl border border-ink-200 bg-white p-1">
         {TABS.map((t) => (
