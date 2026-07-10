@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, FileText, ListChecks, CheckSquare, GitPullRequest,
-  ShieldCheck, Search, ScrollText, LogOut, Lock, Settings,
+  ShieldCheck, ScrollText, LogOut, Lock, Settings,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -23,10 +23,10 @@ const NAV: NavItem[] = [
   { to: "/app/approvals", label: "Approvals", icon: CheckSquare },
   { to: "/app/change-requests", label: "Action items", icon: GitPullRequest, gated: true },
   { to: "/app/compliance", label: "Compliance", icon: ShieldCheck, gated: true },
-  { to: "/app/inspector", label: "Self-inspection", icon: Search, gated: true },
   { to: "/app/audit", label: "Audit trail", icon: ScrollText },
   { to: "/app/overview", label: "Overview", icon: LayoutDashboard },
 ];
+
 
 function initials(name?: string, email?: string) {
   if (name && name.trim()) return name.trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase();

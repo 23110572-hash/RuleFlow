@@ -73,3 +73,19 @@ def import_evidence(
         )
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+
+@router.post("/{data_source_id}/auto-discover")
+def auto_discover(
+    data_source_id: str,
+    firm: Firm = Depends(get_current_firm),
+    db: Session = Depends(get_db),
+):
+    ds = db.get(DataSource, data_source_id)
+    if not ds or ds.firm_id != firm.id:
+        raise HTTPException(404, "data source not found")
+    discovery = datasource_service.auto_discover_schema(db, ds)
+    db.commit()
+    return discovery
+

@@ -14,7 +14,7 @@ import Obligations from "@/pages/Obligations";
 import Approvals from "@/pages/Approvals";
 import ChangeRequests from "@/pages/ChangeRequests";
 import Compliance from "@/pages/Compliance";
-import Inspector from "@/pages/Inspector";
+
 import Audit from "@/pages/Audit";
 import Settings from "@/pages/Settings";
 
@@ -54,10 +54,10 @@ export default function App() {
           <Route path="approvals" element={<Approvals />} />
           <Route path="change-requests" element={<RequireDataSource><ChangeRequests /></RequireDataSource>} />
           <Route path="compliance" element={<RequireDataSource><Compliance /></RequireDataSource>} />
-          <Route path="inspector" element={<RequireDataSource><Inspector /></RequireDataSource>} />
           <Route path="audit" element={<Audit />} />
           <Route path="settings" element={<Settings />} />
         </Route>
+
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
