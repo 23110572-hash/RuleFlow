@@ -25,6 +25,7 @@ from app.kernel.coverage import build_coverage_certificate
 from app.kernel.hashing import content_hash
 from app.kernel.obligation_tests import compile_obligation
 from app.services import audit
+from app.services import change_service
 from app.services import progress
 
 
@@ -155,6 +156,14 @@ def ingest_text(
     )
     db.commit()
     db.refresh(document)
+
+    # Auto-trigger change detection (diff + impact) if a prior version exists.
+    try:
+        change_service.auto_change_detection(db, document)
+    except Exception:
+        import traceback
+        traceback.print_exc()  # non-fatal: don't fail ingestion
+
     return document, True
 
 
@@ -308,6 +317,15 @@ def _background_ingest(
         if prog:
             prog.status = "done"
             prog.obligations_found = len(obligations)
+
+        # Auto-trigger change detection (diff + impact) if a prior version exists.
+        try:
+            action_items = change_service.auto_change_detection(db, document)
+            if prog:
+                prog.action_items_generated = len(action_items)
+        except Exception:
+            import traceback
+            traceback.print_exc()  # non-fatal: don't fail ingestion
 
     except Exception as e:
         import traceback

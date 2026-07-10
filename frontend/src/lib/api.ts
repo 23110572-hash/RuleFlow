@@ -105,8 +105,14 @@ export const api = {
 
   // change management
   changeRequests: (firmId: string) => request<ChangeRequest[]>(`/firms/${firmId}/change-requests`),
-  decideChange: (crId: string, decision: string) =>
-    request(`/change-requests/${crId}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
+  decideChange: (crId: string, decision: string, approver?: string, note?: string) =>
+    request(`/change-requests/${crId}/decision`, { method: "POST", body: JSON.stringify({ decision, approver: approver ?? "compliance_officer", note: note ?? "" }) }),
+  markChangeApplied: (crId: string, actor?: string) =>
+    request(`/change-requests/${crId}/applied`, { method: "POST", body: JSON.stringify({ actor: actor ?? "compliance_officer" }) }),
+  diffDocuments: (fromId: string, toId: string) =>
+    request<{ summary: Record<string, number>; change_event_ids: string[] }>(`/documents/${fromId}/diff/${toId}`, { method: "POST" }),
+  changeImpact: (firmId: string, changeEventIds: string[]) =>
+    request<ChangeRequest[]>(`/firms/${firmId}/change-impact`, { method: "POST", body: JSON.stringify({ change_event_ids: changeEventIds }) }),
 
   // inspector + audit
   runInspection: (firmId: string, theme: string) =>
@@ -151,7 +157,7 @@ export type IngestText = { title: string; text: string; circular_number?: string
 export type IngestionProgress = {
   document_id: string; status: string; percent: number;
   total_clauses: number; processed_clauses: number;
-  obligations_found: number; error: string | null;
+  obligations_found: number; action_items_generated: number; error: string | null;
 };
 export type Obligation = {
   id: string; source_document_id: string; clause_path: string; verbatim_text: string;

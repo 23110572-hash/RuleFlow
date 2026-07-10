@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, FileText, ShieldCheck, UploadCloud } from "lucide-react";
+import { ArrowRight, FileText, GitPullRequest, ShieldCheck, UploadCloud } from "lucide-react";
 import { api, Coverage, DocumentT, IngestionProgress } from "@/lib/api";
 import { Card, EmptyState, PageHeader, Spinner } from "@/components/ui";
 import { AgentFlow, FlowResult } from "@/components/AgentFlow";
@@ -49,8 +49,10 @@ export default function Documents() {
           } catch {
             /* coverage optional — leave null if unavailable */
           }
-          setFlowResult({ obligations: prog.obligations_found, coverage });
+          setFlowResult({ obligations: prog.obligations_found, coverage, actionItems: prog.action_items_generated ?? 0 });
           qc.invalidateQueries({ queryKey: ["documents"] });
+          qc.invalidateQueries({ queryKey: ["change-requests"] });
+          qc.invalidateQueries({ queryKey: ["dashboard"] });
         } else if (prog.status === "error") {
           setPolling(false);
           clearInterval(id);
@@ -103,6 +105,11 @@ export default function Documents() {
             <div className="mt-4 flex gap-3">
               {flowResult && (
                 <TButton onClick={() => navigate("/app/approvals")}>Review obligations <ArrowRight className="h-4 w-4" /></TButton>
+              )}
+              {flowResult && (flowResult.actionItems ?? 0) > 0 && (
+                <TButton variant="primary" className="bg-amber-600 hover:bg-amber-700" onClick={() => navigate("/app/change-requests")}>
+                  <GitPullRequest className="h-4 w-4" /> Review action items ({flowResult.actionItems})
+                </TButton>
               )}
               <TButton variant="ghost" onClick={reset}>Upload another</TButton>
             </div>

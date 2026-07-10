@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Check, FileText, Loader2, Radar, ScanText, ShieldCheck, Users } from "lucide-react";
+import { Check, FileText, GitPullRequest, Loader2, Radar, ScanText, ShieldCheck, Users } from "lucide-react";
 import type { IngestionProgress } from "@/lib/api";
 
 const STAGES = [
@@ -11,7 +11,7 @@ const STAGES = [
 
 const STATUS_ORDER = ["parsing", "extracting", "enriching", "coverage", "done"];
 
-export type FlowResult = { obligations: number; coverage: number | null } | null;
+export type FlowResult = { obligations: number; coverage: number | null; actionItems?: number } | null;
 
 export function AgentFlow({
   running,
@@ -125,6 +125,15 @@ export function AgentFlow({
             </div>
             <div className="text-xs text-ink-400">coverage of the circular</div>
           </div>
+          {(result.actionItems ?? 0) > 0 && (
+            <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+              <div className="flex items-center justify-center gap-2 text-amber-700">
+                <GitPullRequest className="h-5 w-5" />
+                <span className="text-lg font-semibold">{result.actionItems}</span>
+                <span className="text-sm">action item{result.actionItems !== 1 ? "s" : ""} generated — regulation changes detected</span>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
 
