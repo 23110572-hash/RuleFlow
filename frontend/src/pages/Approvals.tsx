@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, Database, Quote, X, AlertTriangle } from "lucide-react";
-import { api, DecisionResult, Obligation } from "@/lib/api";
+import { Check, CheckCircle2, Database, Quote, X, AlertTriangle, FileText } from "lucide-react";
+import { api, DecisionResult, DocumentT, Obligation } from "@/lib/api";
 import { Card, EmptyState, ModalityPill, PageHeader, Spinner } from "@/components/ui";
 import { TButton } from "@/components/motion";
 
@@ -17,10 +17,14 @@ type Banner = { kind: "success" | "warning"; text: string };
 export default function Approvals() {
   const qc = useQueryClient();
   const [tab, setTab] = useState("verified");
+  const [documentId, setDocumentId] = useState("");
   const [banner, setBanner] = useState<Banner | null>(null);
+
+  const { data: docs = [] } = useQuery({ queryKey: ["documents"], queryFn: api.documents });
+
   const { data = [], isLoading } = useQuery({
-    queryKey: ["obligations", "status", tab],
-    queryFn: () => api.obligations({ status: tab }),
+    queryKey: ["obligations", "status", tab, documentId],
+    queryFn: () => api.obligations({ status: tab, ...(documentId ? { document_id: documentId } : {}) }),
   });
 
   const decide = useMutation({
@@ -50,6 +54,8 @@ export default function Approvals() {
     },
   });
 
+  const docLabel = (d: DocumentT) => d.circular_number || d.title || "untitled regulation";
+
   return (
     <div>
       <PageHeader
@@ -77,18 +83,34 @@ export default function Approvals() {
         </div>
       )}
 
-      <div className="mb-5 flex gap-1 rounded-xl border border-ink-200 bg-white p-1">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              tab === t.key ? "bg-brand-600 text-white shadow-soft" : "text-ink-500 hover:bg-ink-50"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 min-w-[280px] gap-1 rounded-xl border border-ink-200 bg-white p-1">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                tab === t.key ? "bg-brand-600 text-white shadow-soft" : "text-ink-500 hover:bg-ink-50"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <select
+          className="input max-w-[280px]"
+          value={documentId}
+          onChange={(e) => setDocumentId(e.target.value)}
+          aria-label="Filter by regulation"
+        >
+          <option value="">All regulations ({docs.reduce((acc, d) => acc + d.obligation_count, 0)})</option>
+          {docs.map((d) => (
+            <option key={d.id} value={d.id}>
+              {docLabel(d)} ({d.obligation_count})
+            </option>
+          ))}
+        </select>
       </div>
 
       {isLoading ? (
@@ -96,7 +118,7 @@ export default function Approvals() {
       ) : data.length === 0 ? (
         <EmptyState
           title={tab === "verified" ? "Nothing to review" : "Nothing here yet"}
-          hint={tab === "verified" ? "Upload a regulation to extract obligations for review." : undefined}
+          hint={tab === "verified" ? "Upload a regulation to extract obligations for review, or select a different regulation filter." : undefined}
           icon={<CheckCircle2 className="h-8 w-8" />}
         />
       ) : (
@@ -115,6 +137,7 @@ export default function Approvals() {
 function ObligationCard({ o, tab, onDecide, busy }: {
   o: Obligation; tab: string; onDecide: (d: "approve" | "reject") => void; busy: boolean;
 }) {
+  const sourceDoc = o.source_circular_number ?? o.source_document_title ?? "SEBI circular";
   return (
     <motion.div
       layout
@@ -125,9 +148,12 @@ function ObligationCard({ o, tab, onDecide, busy }: {
       <Card>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs text-ink-500">{o.clause_path || "n/a"}</span>
               <ModalityPill modality={o.modality} />
+              <span className="flex items-center gap-1 text-[11px] text-ink-400">
+                <FileText className="h-3 w-3" /> {sourceDoc}
+              </span>
             </div>
             <p className="mt-2 text-sm font-medium text-ink-800">{o.normalized_statement}</p>
             <div className="mt-2 rounded-xl border-l-4 border-brand-200 bg-brand-50/40 px-3 py-2">
