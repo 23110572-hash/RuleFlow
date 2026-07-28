@@ -639,18 +639,22 @@ Return JSON: {"impacts": [
 
 
 def detect_impact_on_followed_rules(
-    db: Session, firm_id: str, regenerate: bool = True
+    db: Session, firm_id: str, regenerate: bool = True, document_id: str | None = None
 ) -> list[dict]:
     """Action items grounded in the rules the firm ACTUALLY follows.
 
     Compares "Rules you follow" (read from the firm's connected database) against
-    the current SEBI obligations and raises an action item ONLY where a SEBI
-    requirement makes one of those followed rules outdated or insufficient. This
-    replaces the old behaviour that compared every adopted control against every
-    document (which produced dozens of ungrounded items).
+    SEBI obligations and raises an action item ONLY where a SEBI requirement
+    makes one of those followed rules outdated or insufficient. This replaces the
+    old behaviour that compared every adopted control against every document
+    (which produced dozens of ungrounded items).
 
-    regenerate=True (the user-driven "Sync") first clears existing PENDING items
-    so the list always reflects the current rules-vs-obligations picture.
+    document_id restricts the comparison to a single circular ("compare my rules
+    against THIS document"). When omitted, every ingested obligation is in scope.
+
+    regenerate=True (the user-driven "Sync") clears existing PENDING items so the
+    list reflects the current picture. When a document is chosen, only that
+    document's pending items are cleared, so items from other circulars survive.
     Approved/applied/rejected history is never touched.
     """
     import json
@@ -673,6 +677,10 @@ def detect_impact_on_followed_rules(
             )
         ).scalars().all()
         for cr in pending:
+            # Scoped rescan: only clear pending items for the chosen document so
+            # a per-circular re-check doesn't wipe items from other circulars.
+            if document_id and (cr.citation or {}).get("document_id") != document_id:
+                continue
             db.delete(cr)
         db.flush()
 
@@ -682,12 +690,14 @@ def detect_impact_on_followed_rules(
         db.commit()
         return []
 
-    # Current SEBI obligations relevant to this firm's category.
-    obs = db.execute(
-        select(Obligation).where(
-            Obligation.status.in_(["verified", "approved", "flagged"])
-        )
-    ).scalars().all()
+    # Current SEBI obligations relevant to this firm's category, optionally
+    # restricted to the single circular the user chose to compare against.
+    ob_stmt = select(Obligation).where(
+        Obligation.status.in_(["verified", "approved", "flagged"])
+    )
+    if document_id:
+        ob_stmt = ob_stmt.where(Obligation.source_document_id == document_id)
+    obs = db.execute(ob_stmt).scalars().all()
     relevant: list[Obligation] = []
     for ob in obs:
         cats = {str(a.get("category", "")).lower() for a in (ob.applies_to or [])}
@@ -1128,9 +1138,12 @@ def auto_change_detection(db: Session, document: Document) -> list[dict]:
     firms = db.execute(select(Firm)).scalars().all()
     for firm in firms:
         # Grounded in the rules the firm actually follows (connected database)
-        # vs the new obligations. regenerate=False so an upload only ADDS new
-        # grounded items; it never wipes items already awaiting a decision.
-        drafts = detect_impact_on_followed_rules(db, firm.id, regenerate=False)
+        # vs the obligations of THIS newly ingested circular. regenerate=False so
+        # an upload only ADDS new grounded items; it never wipes items already
+        # awaiting a decision.
+        drafts = detect_impact_on_followed_rules(
+            db, firm.id, regenerate=False, document_id=document.id
+        )
         if drafts:
             all_drafts.extend(drafts)
             log.info(

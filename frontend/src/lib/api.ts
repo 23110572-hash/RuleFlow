@@ -243,6 +243,7 @@ export type ChangeRequest = {
 };
 export type RescanResult = {
   scanned_documents: number;
+  document_id?: string | null;
   action_items_created: number;
   drafts: ChangeRequest[];
 };

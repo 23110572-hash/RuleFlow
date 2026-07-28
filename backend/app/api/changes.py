@@ -128,15 +128,20 @@ def rescan_impact(
     """Regenerate this firm's action items from the rules it actually follows.
 
     Compares "Rules you follow" (read from the firm's connected database) against
-    the current SEBI obligations and raises an action item only where a SEBI
-    requirement makes one of those followed rules outdated or insufficient.
-    Existing pending items are regenerated; approved/applied history is kept.
-    ``document_id`` is accepted for backward compatibility but ignored — the
-    comparison is always the firm's followed rules against all obligations.
+    SEBI obligations and raises an action item only where a SEBI requirement
+    makes one of those followed rules outdated or insufficient.
+
+    ``document_id`` scopes the comparison to a single circular ("check my rules
+    against this document"). Omit it to compare against every ingested circular.
+    Pending items for the chosen scope are regenerated; approved/applied history
+    is kept.
     """
-    drafts = change_service.detect_impact_on_followed_rules(db, firm_id)
+    drafts = change_service.detect_impact_on_followed_rules(
+        db, firm_id, document_id=document_id
+    )
     return {
-        "scanned_documents": 0,
+        "scanned_documents": 1 if document_id else 0,
+        "document_id": document_id,
         "action_items_created": len(drafts),
         "drafts": drafts,
     }

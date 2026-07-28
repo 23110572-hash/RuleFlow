@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { api, ChangeRequest, DatabaseRule } from "@/lib/api";
+import { api, ChangeRequest, DatabaseRule, DocumentT } from "@/lib/api";
 import { useFirm } from "@/lib/firm";
 import { Card, EmptyState, PageHeader, Spinner, StatusPill } from "@/components/ui";
 import { TButton } from "@/components/motion";
@@ -57,6 +57,14 @@ export default function ChangeRequests() {
   });
   const dbRules = rulesResult?.rules ?? [];
 
+  // Which circular to check the followed rules against. "" = all circulars.
+  const { data: docs = [] } = useQuery({ queryKey: ["documents"], queryFn: api.documents });
+  const [compareDocId, setCompareDocId] = useState("");
+  const compareLabel = (d: DocumentT) => d.circular_number || d.title || "untitled circular";
+  const compareScope = compareDocId
+    ? compareLabel(docs.find((d) => d.id === compareDocId) ?? ({} as DocumentT)) || "the selected circular"
+    : "all circulars";
+
   const filteredCRs = useMemo(() => {
     if (actionTab === "all") return changeRequests;
     return changeRequests.filter((cr) => cr.status === actionTab);
@@ -93,7 +101,7 @@ export default function ChangeRequests() {
 
   const rescan = useMutation({
     mutationFn: async () => {
-      const res = await api.rescanImpact(firmId!);
+      const res = await api.rescanImpact(firmId!, compareDocId || undefined);
       await qc.refetchQueries({ queryKey: ["database-rules", firmId] });
       await qc.refetchQueries({ queryKey: ["change-requests", firmId] });
       await qc.refetchQueries({ queryKey: ["dashboard", firmId] });
@@ -109,24 +117,39 @@ export default function ChangeRequests() {
         title="Action items & Database rules"
         subtitle="Compare the active laws and policies in your connected database against SEBI requirements, and approve system updates."
         action={
-          <TButton
-            variant="ghost"
-            disabled={rescan.isPending || !firmId}
-            onClick={() => rescan.mutate()}
-          >
-            <RefreshCw className={cn("h-4 w-4", rescan.isPending && "animate-spin")} />
-            {rescan.isPending ? "Syncing database…" : "Sync database rules"}
-          </TButton>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="input max-w-[240px]"
+              value={compareDocId}
+              onChange={(e) => setCompareDocId(e.target.value)}
+              disabled={rescan.isPending}
+              aria-label="Compare your rules against"
+              title="Choose which circular to check your rules against"
+            >
+              <option value="">Compare against all circulars</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  Compare against: {compareLabel(d)}
+                </option>
+              ))}
+            </select>
+            <TButton
+              variant="ghost"
+              disabled={rescan.isPending || !firmId}
+              onClick={() => rescan.mutate()}
+            >
+              <RefreshCw className={cn("h-4 w-4", rescan.isPending && "animate-spin")} />
+              {rescan.isPending ? "Checking…" : "Check my rules"}
+            </TButton>
+          </div>
         }
       />
 
       {rescan.isSuccess && rescan.data && (
         <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-          Synced {rulesResult?.data_source ?? "your database"}: read{" "}
-          <span className="font-semibold">{rulesResult?.tables_read.length ?? 0}</span> table(s) and found{" "}
-          <span className="font-semibold">{rulesResult?.database_rules_count ?? 0}</span> rule(s) in your database.{" "}
-          <span className="font-semibold">{rulesResult?.controls_count ?? 0}</span> obligation(s) are also adopted in RuleFlow.{" "}
-          Updated <span className="font-semibold">{rescan.data.action_items_created}</span> action items.
+          Checked <span className="font-semibold">{rulesResult?.database_rules_count ?? 0}</span> rule(s)
+          you follow against <span className="font-semibold">{compareScope}</span> and created{" "}
+          <span className="font-semibold">{rescan.data.action_items_created}</span> action item(s).
         </div>
       )}
       {rescan.isError && (
