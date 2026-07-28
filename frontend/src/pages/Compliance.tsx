@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, FileText, Filter, Quote, Sparkles } from "lucide-react";
+import { Check, CheckCircle2, FileText, Quote, Sparkles } from "lucide-react";
 import { api, DocumentT, Suggestion } from "@/lib/api";
 import { useFirm } from "@/lib/firm";
 import {
@@ -9,9 +9,7 @@ import {
   EmptyState,
   ModalityPill,
   PageHeader,
-  SeverityPill,
   Spinner,
-  StatusPill,
 } from "@/components/ui";
 import { TButton } from "@/components/motion";
 
@@ -24,12 +22,6 @@ export default function Compliance() {
   const { data: docs = [] } = useQuery({
     queryKey: ["documents"],
     queryFn: api.documents,
-  });
-
-  const evaluation = useQuery({
-    queryKey: ["evaluate", firmId],
-    queryFn: () => api.evaluate(firmId!),
-    enabled: !!firmId,
   });
 
   const suggestions = useQuery({
@@ -49,23 +41,15 @@ export default function Compliance() {
   });
 
   if (!firmId) return <EmptyState title="Select a firm" />;
-  if (evaluation.isLoading)
-    return <Spinner label="Running obligation tests against evidence…" />;
-  if (evaluation.error || !evaluation.data)
-    return <EmptyState title="Could not evaluate" hint={String(evaluation.error)} />;
 
-  const data = evaluation.data;
   const sug = suggestions.data;
-  const gapByOb = new Map(data.gaps.map((g) => [g.obligation_id, g]));
   const categoryLabel = firm?.category ? firm.category.replace(/_/g, " ") : "your firm";
 
   return (
     <div>
       <PageHeader
-        title="Compliance & Tests"
-        subtitle={`${data.results.length} adopted obligations · ${data.gaps.length} open gaps · readiness ${
-          data.readiness.score ?? "n/a"
-        }${data.readiness.score !== null ? "/100" : ""} · as of ${new Date(data.as_of).toLocaleString()}`}
+        title="Compliance & Rule Suggestions"
+        subtitle="Review and adopt SEBI regulatory obligations suggested for your firm category, organized document wise."
       />
 
       <SuggestionsSection
@@ -81,72 +65,6 @@ export default function Compliance() {
         onAdopt={(id) => adopt.mutate(id)}
         adoptingId={adopt.isPending ? (adopt.variables as string) ?? null : null}
       />
-
-      <div className="mb-4 mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-6">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-            Adopted obligations & Test results
-          </h2>
-          <p className="mt-0.5 text-xs text-ink-400">
-            {data.results.length === 0
-              ? "Nothing adopted yet. Approve obligations to fill this list."
-              : `${data.results.length} active in your compliance record`}
-          </p>
-        </div>
-      </div>
-
-      {data.results.length === 0 ? (
-        <EmptyState
-          title="No adopted obligations"
-          hint="Approve obligations from Approvals or adopt suggestions above to see live test results here."
-        />
-      ) : (
-        // Same containment as the Obligation Register: keep the table inside the
-        // rounded card and let it scroll rather than spill out of the box.
-        <Card className="overflow-hidden p-0">
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[44rem] table-fixed text-sm">
-            <colgroup>
-              <col className="w-[8rem]" />
-              <col className="w-[9rem]" />
-              <col />
-              <col className="w-[7rem]" />
-            </colgroup>
-            <thead className="border-b border-ink-100 text-left text-xs uppercase tracking-wide text-ink-400">
-              <tr>
-                <th className="px-4 py-3 font-medium">Clause</th>
-                <th className="px-4 py-3 font-medium">Test result</th>
-                <th className="px-4 py-3 font-medium">Detail</th>
-                <th className="px-4 py-3 font-medium">Gap</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-50">
-              {data.results.map((r) => {
-                const gap = gapByOb.get(r.obligation_id);
-                return (
-                  <tr key={r.obligation_id} className="hover:bg-ink-50/60">
-                    <td className="truncate px-4 py-3 align-top font-mono text-xs text-ink-500" title={r.clause_path || undefined}>
-                      {r.clause_path || "n/a"}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <StatusPill status={r.status} />
-                    </td>
-                    <td className="px-4 py-3 align-top text-ink-600">{r.detail}</td>
-                    <td className="px-4 py-3 align-top">
-                      {gap ? (
-                        <SeverityPill severity={gap.severity} />
-                      ) : (
-                        <span className="pill whitespace-nowrap bg-green-50 text-green-700">clear</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
