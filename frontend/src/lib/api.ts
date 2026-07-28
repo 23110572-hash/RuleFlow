@@ -268,6 +268,7 @@ export type DatabaseRulesResult = {
   connected: boolean;
   data_source: string | null;
   tables_read: string[];
+  rule_tables?: string[];
   controls_count: number;
   database_rules_count: number;
   /** Explains an empty list (not connected, nothing found, extraction failed). */

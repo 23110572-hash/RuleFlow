@@ -163,8 +163,11 @@ def evaluate_firm(db: Session, firm_id: str, category: str, as_of: datetime | No
         "failing": status_counts["red"],
         "attested": status_counts["not_compilable"],
         "gaps": sev_counts,
+        "firm_category": category,
     }
-    readiness = score_readiness(summary, fallback_score=health_score(len(obligations), findings))
+    from app.services import change_service
+    db_rules = change_service.get_connected_database_rules(db, firm_id)
+    readiness = score_readiness(summary, fallback_score=health_score(len(obligations), findings), db_rules=db_rules)
 
     return {
         "results": results,

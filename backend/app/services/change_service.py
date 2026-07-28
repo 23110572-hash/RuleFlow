@@ -419,66 +419,151 @@ def _llm_rules_from_database(
     return rules
 
 
+# Read a firm's explicit rule/policy tables deterministically — one grounded
+# rule per row, no sampling, no LLM loss. This is what makes a broker_rules table
+# with 20 rows yield 20 rules instead of the 5 that per-table sampling returned.
+_RULE_TABLE_HINTS = ("rule", "policy", "control", "mandate", "compliance", "limit", "threshold")
+# Names that carry a rule word but are really logs/data, not rule definitions.
+_NON_RULE_HINTS = ("breach", "log", "event", "history", "txn", "transaction", "trade",
+                   "settlement", "audit", "ledger", "customer", "client", "account", "kyc")
+_NAME_COLS = ("rule_name", "name", "description", "rule", "policy", "requirement",
+              "statement", "title", "detail", "details", "particulars")
+_PARAM_COLS = ("parameter_value", "parameter", "value", "threshold", "limit",
+               "cadence", "frequency", "periodicity", "requirement_value")
+_CLAUSE_COLS = ("mapped_clause", "clause", "clause_path", "circular", "circular_number",
+                "regulation", "reference", "sebi_ref", "sebi_reference")
+_STATUS_COLS = ("status", "state", "enabled", "active", "is_active")
+
+
+def _match_col(columns: list[str], candidates: tuple[str, ...]) -> str | None:
+    """First column whose name equals (then contains) one of candidates."""
+    lower = {c.lower(): c for c in columns}
+    for cand in candidates:
+        if cand in lower:
+            return lower[cand]
+    for cand in candidates:
+        for lc, orig in lower.items():
+            if cand in lc:
+                return orig
+    return None
+
+
+def _looks_like_rule_table(name: str, columns: list[str]) -> bool:
+    n = name.lower()
+    if n.startswith("ruleflow_"):  # our own mirror of adopted obligations
+        return False
+    if any(h in n for h in _NON_RULE_HINTS):  # breach/txn/kyc/settlement logs are not rules
+        return False
+    if any(h in n for h in _RULE_TABLE_HINTS):
+        return True
+    has_name = _match_col(columns, _NAME_COLS) is not None
+    has_meta = any(_match_col(columns, c) for c in (_PARAM_COLS, _CLAUSE_COLS, _STATUS_COLS))
+    return has_name and has_meta
+
+
+def _rules_from_connected_database(
+    data_source, max_tables: int = 25, max_rows_per_table: int = 500
+) -> tuple[list[dict], list[str], list[str], str | None]:
+    """Read EVERY row of the firm's rule/policy tables and turn each into one
+    grounded rule. Returns (rules, tables_read, rule_tables, error)."""
+    from sqlalchemy import inspect, text
+
+    from app.services.datasource_service import _create_db_engine
+
+    rules: list[dict] = []
+    tables_read: list[str] = []
+    rule_tables: list[str] = []
+    engine = None
+    try:
+        engine = _create_db_engine(data_source.kind, data_source.connection_uri)
+        insp = inspect(engine)
+        with engine.connect() as conn:
+            for table in insp.get_table_names()[:max_tables]:
+                tables_read.append(table)
+                columns = [c["name"] for c in insp.get_columns(table)]
+                if not _looks_like_rule_table(table, columns):
+                    continue
+                name_col = _match_col(columns, _NAME_COLS)
+                if not name_col:
+                    continue
+                rule_tables.append(table)
+                param_col = _match_col(columns, _PARAM_COLS)
+                clause_col = _match_col(columns, _CLAUSE_COLS)
+                status_col = _match_col(columns, _STATUS_COLS)
+                # Identifier comes from the driver's own reflection, not user input.
+                rows = conn.execute(
+                    text(f'SELECT * FROM "{table}" LIMIT :n'), {"n": max_rows_per_table}
+                ).mappings().all()
+                seen: set[str] = set()
+                for i, row in enumerate(rows):
+                    d = dict(row)
+                    name = str(d.get(name_col) or "").strip()
+                    if not name or name.lower() in seen:
+                        continue
+                    seen.add(name.lower())
+                    status = str(d.get(status_col) or "").strip().lower() if status_col else ""
+                    active = status in ("", "active", "enabled", "true", "1", "yes", "on")
+                    rules.append(
+                        {
+                            "id": f"db_{table}_{i}",
+                            "rule_name": name[:200],
+                            "source_system": f"{data_source.name} \u00b7 {table}",
+                            "parameter_value": (
+                                str(d.get(param_col)).strip()
+                                if param_col and d.get(param_col)
+                                else "present"
+                            ),
+                            "mapped_clause": (
+                                str(d.get(clause_col)).strip()
+                                if clause_col and d.get(clause_col)
+                                else "not mapped to a circular yet"
+                            ),
+                            "status": "active" if active else (status or "review"),
+                            "origin": "connected_database",
+                            "evidence": f"{table}.{name_col}",
+                        }
+                    )
+        return rules, tables_read, rule_tables, None
+    except Exception as exc:
+        structlog.get_logger(__name__).warning("connected_db_read_failed", error=str(exc)[:300])
+        return [], tables_read, [], str(exc)[:300]
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
 def get_connected_database_rules(db: Session, firm_id: str) -> dict:
-    """What rules is this firm ALREADY following?
+    """The rules this firm ALREADY follows, read from its CONNECTED DATABASE.
 
-    Exactly two grounded sources, and nothing else:
+    Adopted RuleFlow controls are intentionally NOT included in this list (they
+    live on the Compliance page); they are only counted for context. This panel
+    answers a different question: "what is my own database actually enforcing?"
 
-      1. Controls in RuleFlow's own record — obligations the firm approved, so
-         these are rules it has explicitly committed to.
-      2. The firm's connected database, read by the LLM. The agent proposes;
-         ``_llm_rules_from_database`` then verifies every rule names a table that
-         really exists before it is shown.
-
-    Nothing is fabricated. Earlier versions filled this list with hardcoded
-    per-category templates and let the LLM invent SEBI circular numbers with an
-    empty database context, which told a compliance officer they were following
-    rules that exist nowhere in their systems. If there is nothing to report we
-    return an empty list and say why.
+    We read every row of the firm's explicit rule/policy tables so a 20-row
+    ``broker_rules`` table yields 20 rules — not the 5 that per-table sampling
+    used to return, and not 88 (which was 83 controls mixed in with 5 sampled
+    rules). If there is no obvious rule table we fall back to the LLM reading the
+    schema. Nothing is fabricated.
     """
-    from app.db.models import Control, DataSource, Firm, Obligation
+    from app.db.models import Control, DataSource, Firm
 
     log = structlog.get_logger(__name__)
-
     firm = db.get(Firm, firm_id)
     firm_category = (firm.category if firm else "").lower().strip()
 
-    rules: list[dict] = []
-
-    # 1. Controls the firm has adopted inside RuleFlow.
+    # Controls are counted for context only, never mixed into the rule list.
     controls = db.execute(
         select(Control).where(Control.firm_id == firm_id, Control.status == "active")
     ).scalars().all()
-    for c in controls:
-        mapped_clause = ""
-        for ob_id in c.obligation_ids or []:
-            ob = db.get(Obligation, ob_id)
-            if ob and ob.clause_path:
-                mapped_clause = ob.clause_path
-                break
-        rules.append(
-            {
-                "id": f"ctrl_{c.id}",
-                "rule_name": c.description,
-                # Control has no source_system column. Reading one raised
-                # AttributeError and 500'd this endpoint, which is why the panel
-                # showed "No database rules found".
-                "source_system": "RuleFlow control record",
-                "parameter_value": c.frequency or "ongoing",
-                "mapped_clause": mapped_clause or "not mapped to a circular yet",
-                "status": c.status or "active",
-                "origin": "control",
-                "evidence": f"Adopted control owned by {c.owner_role or 'the firm'}",
-            }
-        )
 
-    # 2. The firm's own database, read by the LLM.
     ds = db.execute(
         select(DataSource).where(DataSource.firm_id == firm_id)
     ).scalars().first()
 
+    rules: list[dict] = []
     connected = False
     tables_read: list[str] = []
+    rule_tables: list[str] = []
     message = ""
 
     if not ds or not ds.connection_uri:
@@ -487,37 +572,48 @@ def get_connected_database_rules(db: Session, firm_id: str) -> dict:
             "we will read it to list the rules you already enforce."
         )
     else:
-        context, error = _reflect_connected_database(ds)
+        # 1. Deterministic: read every row of explicit rule/policy tables.
+        rules, tables_read, rule_tables, error = _rules_from_connected_database(ds)
         if error:
             message = f"Could not read {ds.name}: {error}"
-        elif not context:
-            connected = True
-            message = f"{ds.name} is connected but contains no tables to read."
         else:
             connected = True
-            tables_read = list(context)
-            try:
-                found = _llm_rules_from_database(firm_category, ds.name, context)
-                rules.extend(found)
-                if not found:
+
+        # 2. Fallback: no obvious rule table — let the LLM read the schema.
+        if connected and not rules:
+            context, ctx_error = _reflect_connected_database(ds)
+            if ctx_error:
+                message = f"Could not read {ds.name}: {ctx_error}"
+            elif not context:
+                message = f"{ds.name} is connected but contains no tables to read."
+            else:
+                tables_read = list(context)
+                try:
+                    rules = _llm_rules_from_database(firm_category, ds.name, context)
+                    if not rules:
+                        message = (
+                            f"Read {len(tables_read)} table(s) in {ds.name} but found no "
+                            "compliance rules in them."
+                        )
+                except Exception as exc:
+                    log.warning("database_rule_extraction_failed", error=str(exc)[:300])
                     message = (
-                        f"Read {len(tables_read)} table(s) in {ds.name} but found no "
-                        "compliance rules in them."
+                        "We reached your database but the AI extraction step failed: "
+                        f"{str(exc)[:200]}"
                     )
-            except Exception as exc:
-                log.warning("database_rule_extraction_failed", error=str(exc)[:300])
-                message = (
-                    "We reached your database but the AI extraction step failed: "
-                    f"{str(exc)[:200]}"
-                )
+        elif connected and not message:
+            message = (
+                f"Read {len(rules)} rule(s) from {len(rule_tables)} rule table(s) in {ds.name}."
+            )
 
     return {
         "rules": rules,
         "connected": connected,
         "data_source": ds.name if ds else None,
         "tables_read": tables_read,
+        "rule_tables": rule_tables,
         "controls_count": len(controls),
-        "database_rules_count": sum(1 for r in rules if r["origin"] == "connected_database"),
+        "database_rules_count": len(rules),
         "message": message,
     }
 

@@ -27,23 +27,27 @@ export default function Dashboard() {
   const t = data.tests;
   const totalTests = t.green + t.amber + t.red + t.not_compilable || 1;
 
+  const categoryFormatted = (data.firm.category || "firm")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
   return (
     <div>
       <PageHeader
-        title={`${firm?.name ?? "Firm"}`}
-        subtitle={`${data.firm.category.replace(/_/g, " ")}${data.firm.tier ? `, ${data.firm.tier}` : ""}. Your live compliance picture.`}
+        title={`${firm?.name ?? "Firm Workspace"}`}
+        subtitle={`${categoryFormatted}${data.firm.tier ? `, ${data.firm.tier}` : ""}. Your live AI compliance picture.`}
       />
 
       <motion.div variants={stagger} initial="initial" animate="animate" className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <motion.div variants={rise} className="lg:row-span-2">
           <div className="relative flex h-full flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 via-white to-white p-6 shadow-card">
             <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-brand-100/50 blur-2xl" />
-            <div className="label relative z-10">Compliance Readiness</div>
+            <div className="label relative z-10 font-semibold uppercase tracking-wider text-ink-500">Compliance Readiness</div>
             {data.readiness.score !== null ? (
               <>
                 <HealthRing score={data.readiness.score} size={168} />
                 <ReadinessBadge band={data.readiness.band} method={data.readiness.method} />
-                <p className="relative z-10 max-w-xs text-center text-sm text-ink-500">{data.readiness.rationale}</p>
+                <p className="relative z-10 max-w-xs text-center text-xs font-medium leading-relaxed text-ink-600">{data.readiness.rationale}</p>
               </>
             ) : (
               <div className="py-8 text-center">
@@ -64,7 +68,7 @@ export default function Dashboard() {
         </motion.div>
         <motion.div variants={rise}>
           <MetricCard icon={CheckCircle2} label="Satisfied checks" value={data.tests.green}
-            hint={`${data.tests.red} failing · ${data.tests.amber} at risk`} to="/app/compliance" accent="#16a34a" />
+            hint={`${data.tests.red} failing · ${data.tests.amber} at risk`} to="/app/change-requests" accent="#16a34a" />
         </motion.div>
         <motion.div variants={rise}>
           <MetricCard icon={GitPullRequest} label="Action items" value={data.pending_change_requests}
@@ -77,7 +81,7 @@ export default function Dashboard() {
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold text-ink-900">Obligation tests</h2>
-            <Link to="/app/compliance" className="text-sm font-medium text-brand-600 hover:text-brand-700">View all</Link>
+            <Link to="/app/change-requests" className="text-sm font-medium text-brand-600 hover:text-brand-700">View all</Link>
           </div>
           <div className="mb-3 flex h-2.5 overflow-hidden rounded-full bg-ink-100">
             <div className="bg-ok" style={{ width: `${(t.green / totalTests) * 100}%` }} />
@@ -95,7 +99,7 @@ export default function Dashboard() {
         <Card>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold text-ink-900">Open gaps</h2>
-            <Link to="/app/compliance" className="text-sm font-medium text-brand-600 hover:text-brand-700">Remediate</Link>
+            <Link to="/app/change-requests" className="text-sm font-medium text-brand-600 hover:text-brand-700">Remediate</Link>
           </div>
           {data.gaps.total === 0 ? (
             <div className="flex items-center gap-2 py-6 text-sm text-ok">
@@ -149,7 +153,9 @@ function ReadinessBadge({ band, method }: { band: string; method: string }) {
   return (
     <div className="relative z-10 flex items-center gap-2">
       <span className={`pill ${BAND_STYLE[band] ?? BAND_STYLE.no_data}`}>{band.replace("_", " ")}</span>
-      {method === "ai" && <span className="pill bg-brand-50 text-brand-600">AI rated</span>}
+      <span className="pill bg-brand-50 font-medium text-brand-700">
+        {method === "ai" ? "AI Judge Assessment" : "System Evaluated"}
+      </span>
     </div>
   );
 }

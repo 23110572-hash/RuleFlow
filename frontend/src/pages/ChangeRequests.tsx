@@ -123,10 +123,10 @@ export default function ChangeRequests() {
       {rescan.isSuccess && rescan.data && (
         <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
           Synced {rulesResult?.data_source ?? "your database"}: read{" "}
-          <span className="font-semibold">{rulesResult?.tables_read.length ?? 0}</span> table(s), found{" "}
-          <span className="font-semibold">{rulesResult?.database_rules_count ?? 0}</span> database rule(s) plus{" "}
-          <span className="font-semibold">{rulesResult?.controls_count ?? 0}</span> adopted control(s), and updated{" "}
-          <span className="font-semibold">{rescan.data.action_items_created}</span> action items.
+          <span className="font-semibold">{rulesResult?.tables_read.length ?? 0}</span> table(s) and found{" "}
+          <span className="font-semibold">{rulesResult?.database_rules_count ?? 0}</span> rule(s) in your database.{" "}
+          <span className="font-semibold">{rulesResult?.controls_count ?? 0}</span> obligation(s) are also adopted in RuleFlow.{" "}
+          Updated <span className="font-semibold">{rescan.data.action_items_created}</span> action items.
         </div>
       )}
       {rescan.isError && (
