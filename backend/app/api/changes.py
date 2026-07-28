@@ -125,29 +125,20 @@ def rescan_impact(
     ),
     db: Session = Depends(get_db),
 ):
-    """Re-run the impact detector for this firm.
+    """Regenerate this firm's action items from the rules it actually follows.
 
-    Compares the firm's adopted obligations against the extracted obligations
-    of ``document_id`` (or every document, if omitted). Idempotent: change
-    events / requests that already exist are not duplicated.
+    Compares "Rules you follow" (read from the firm's connected database) against
+    the current SEBI obligations and raises an action item only where a SEBI
+    requirement makes one of those followed rules outdated or insufficient.
+    Existing pending items are regenerated; approved/applied history is kept.
+    ``document_id`` is accepted for backward compatibility but ignored — the
+    comparison is always the firm's followed rules against all obligations.
     """
-    change_service.cleanup_spurious_change_requests(db, firm_id)
-    if document_id:
-        drafts = change_service.detect_impact_on_adopted_obligations(db, document_id, firm_id)
-        scanned = 1 if drafts is not None else 0
-        return {"scanned_documents": scanned, "action_items_created": len(drafts), "drafts": drafts}
-
-    doc_ids = [
-        d.id
-        for d in db.execute(select(Document).order_by(Document.recorded_at.asc())).scalars().all()
-    ]
-    all_drafts: list[dict] = []
-    for did in doc_ids:
-        all_drafts.extend(change_service.detect_impact_on_adopted_obligations(db, did, firm_id))
+    drafts = change_service.detect_impact_on_followed_rules(db, firm_id)
     return {
-        "scanned_documents": len(doc_ids),
-        "action_items_created": len(all_drafts),
-        "drafts": all_drafts,
+        "scanned_documents": 0,
+        "action_items_created": len(drafts),
+        "drafts": drafts,
     }
 
 

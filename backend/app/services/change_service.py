@@ -618,6 +618,199 @@ def get_connected_database_rules(db: Session, firm_id: str) -> dict:
     }
 
 
+FOLLOWED_RULE_IMPACT_SYSTEM = """You compare the compliance rules a SEBI-regulated firm ALREADY follows against current SEBI obligations, and flag ONLY the followed rules that must change.
+
+You are given:
+- FOLLOWED RULES: what the firm currently enforces in its own systems (a name and its current parameter/value).
+- SEBI OBLIGATIONS: current SEBI requirements (each with a clause_path and a statement).
+
+For each followed rule, decide whether any SEBI obligation makes that rule outdated, insufficient, or contradictory (e.g. the firm enforces a weaker threshold, a longer timeline, or a rule SEBI has since tightened). Flag it ONLY when there is a genuine mismatch. If a followed rule already satisfies SEBI, do NOT flag it.
+
+Hard rules:
+- Every flagged item MUST cite a real obligation from the list, by its EXACT clause_path.
+- "followed_rule" MUST be copied exactly from the FOLLOWED RULES list.
+- "action" is one concise sentence telling the compliance officer what to change in their system.
+- Never invent obligations, clause numbers or rules.
+- Return an empty list if every followed rule is already compliant.
+
+Return JSON: {"impacts": [
+  {"followed_rule": "<name from FOLLOWED RULES>", "clause_path": "<clause_path from SEBI OBLIGATIONS>", "what_changed": "<why the rule must change>", "action": "<what to do>"}
+]}"""
+
+
+def detect_impact_on_followed_rules(
+    db: Session, firm_id: str, regenerate: bool = True
+) -> list[dict]:
+    """Action items grounded in the rules the firm ACTUALLY follows.
+
+    Compares "Rules you follow" (read from the firm's connected database) against
+    the current SEBI obligations and raises an action item ONLY where a SEBI
+    requirement makes one of those followed rules outdated or insufficient. This
+    replaces the old behaviour that compared every adopted control against every
+    document (which produced dozens of ungrounded items).
+
+    regenerate=True (the user-driven "Sync") first clears existing PENDING items
+    so the list always reflects the current rules-vs-obligations picture.
+    Approved/applied/rejected history is never touched.
+    """
+    import json
+
+    from app.llm.client import get_llm
+
+    log = structlog.get_logger(__name__)
+
+    firm = db.get(Firm, firm_id)
+    if not firm:
+        return []
+
+    # The rules the firm follows, from its connected database.
+    followed = get_connected_database_rules(db, firm_id).get("rules", [])
+
+    if regenerate:
+        pending = db.execute(
+            select(ChangeRequest).where(
+                ChangeRequest.firm_id == firm_id, ChangeRequest.status == "pending"
+            )
+        ).scalars().all()
+        for cr in pending:
+            db.delete(cr)
+        db.flush()
+
+    # No followed rules => nothing to compare. Action items only exist once we
+    # know what the firm actually enforces.
+    if not followed:
+        db.commit()
+        return []
+
+    # Current SEBI obligations relevant to this firm's category.
+    obs = db.execute(
+        select(Obligation).where(
+            Obligation.status.in_(["verified", "approved", "flagged"])
+        )
+    ).scalars().all()
+    relevant: list[Obligation] = []
+    for ob in obs:
+        cats = {str(a.get("category", "")).lower() for a in (ob.applies_to or [])}
+        if not cats or firm.category.lower() in cats or "all" in cats or "any" in cats:
+            relevant.append(ob)
+    if not relevant:
+        db.commit()
+        return []
+
+    by_clause: dict[str, Obligation] = {}
+    for ob in relevant:
+        if ob.clause_path:
+            by_clause.setdefault(ob.clause_path.strip().lower(), ob)
+
+    # Don't duplicate items that already exist for the same (rule, obligation),
+    # whatever their status (pending survivors when regenerate=False, plus any
+    # already approved/applied/rejected).
+    existing = db.execute(
+        select(ChangeRequest).where(ChangeRequest.firm_id == firm_id)
+    ).scalars().all()
+    existing_pairs = {
+        (
+            str((cr.citation or {}).get("followed_rule", "")).strip().lower(),
+            str((cr.citation or {}).get("obligation_id", "")),
+        )
+        for cr in existing
+    }
+
+    llm = get_llm()
+    if not llm.enabled:
+        db.commit()
+        return []
+
+    rules_txt = [
+        {"followed_rule": r["rule_name"], "current_parameter": r.get("parameter_value", "")}
+        for r in followed
+    ]
+    obs_txt = [
+        {
+            "clause_path": ob.clause_path,
+            "statement": (ob.normalized_statement or ob.verbatim_text or "")[:240],
+        }
+        for ob in relevant[:80]
+    ]
+
+    try:
+        payload = llm.complete_json(
+            FOLLOWED_RULE_IMPACT_SYSTEM,
+            f"FOLLOWED RULES:\n{json.dumps(rules_txt, ensure_ascii=False)}\n\n"
+            f"SEBI OBLIGATIONS:\n{json.dumps(obs_txt, ensure_ascii=False)}",
+        )
+    except Exception as exc:
+        log.warning("followed_rule_impact_failed", error=str(exc)[:300])
+        db.commit()
+        return []
+
+    impacts = (payload or {}).get("impacts", []) if isinstance(payload, dict) else []
+    followed_names = {r["rule_name"].strip().lower() for r in followed}
+
+    drafts: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for item in impacts:
+        if not isinstance(item, dict):
+            continue
+        rule_name = str(item.get("followed_rule") or "").strip()
+        clause = str(item.get("clause_path") or "").strip()
+        action = str(item.get("action") or "").strip()
+        what = str(item.get("what_changed") or "").strip()
+        if not rule_name or not clause or not action:
+            continue
+        # Grounding: the rule must be one the firm really follows.
+        if rule_name.lower() not in followed_names:
+            continue
+        # Grounding: the clause must map to a real obligation.
+        ob = by_clause.get(clause.lower())
+        if ob is None:
+            for k, v in by_clause.items():
+                if clause.lower() in k or k in clause.lower():
+                    ob = v
+                    break
+        if ob is None:
+            continue
+        key = (rule_name.lower(), ob.id)
+        if key in seen or key in existing_pairs:
+            continue
+        seen.add(key)
+
+        cr = ChangeRequest(
+            change_event_id=None,
+            firm_id=firm_id,
+            operational_action_text=action,
+            citation={
+                "obligation_id": ob.id,
+                "clause_path": ob.clause_path,
+                "document_id": ob.source_document_id,
+                "followed_rule": rule_name,
+                "what_changed": what,
+            },
+            status="pending",
+        )
+        db.add(cr)
+        db.flush()
+        drafts.append(
+            {
+                "change_request_id": cr.id,
+                "firm_id": firm_id,
+                "type": "amended",
+                "operational_action_text": action,
+                "citation": cr.citation,
+            }
+        )
+
+    if drafts:
+        audit.record(
+            db,
+            action="followed_rules.impact_analyzed",
+            payload={"firm_id": firm_id, "action_items": len(drafts)},
+            firm_id=firm_id,
+        )
+    db.commit()
+    return drafts
+
+
 def scan_firm_database_for_changes(
     db: Session, firm_id: str, document_id: str | None = None
 ) -> list[dict]:
@@ -776,6 +969,12 @@ def cleanup_spurious_change_requests(db: Session, firm_id: str) -> int:
     deleted_count = 0
     for cr in crs:
         if not cr.change_event_id:
+            # Followed-rule action items (rule-you-follow vs SEBI obligation) are
+            # grounded in a real obligation but have no doc-to-doc ChangeEvent.
+            # Keep those; only delete genuinely orphaned requests.
+            cit = cr.citation or {}
+            if cit.get("obligation_id") or cit.get("followed_rule"):
+                continue
             db.delete(cr)
             deleted_count += 1
             continue
@@ -928,7 +1127,10 @@ def auto_change_detection(db: Session, document: Document) -> list[dict]:
     all_drafts: list[dict] = []
     firms = db.execute(select(Firm)).scalars().all()
     for firm in firms:
-        drafts = detect_impact_on_adopted_obligations(db, document.id, firm.id)
+        # Grounded in the rules the firm actually follows (connected database)
+        # vs the new obligations. regenerate=False so an upload only ADDS new
+        # grounded items; it never wipes items already awaiting a decision.
+        drafts = detect_impact_on_followed_rules(db, firm.id, regenerate=False)
         if drafts:
             all_drafts.extend(drafts)
             log.info(

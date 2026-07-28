@@ -198,7 +198,11 @@ export default function ChangeRequests() {
           ) : filteredCRs.length === 0 ? (
             <EmptyState
               title={actionTab === "all" ? "No action items required" : `No ${actionTab} action items`}
-              hint="Your connected database parameters match your SEBI obligations."
+              hint={
+                (rulesResult?.database_rules_count ?? 0) === 0
+                  ? "Connect your database and sync so we can compare the rules you follow against SEBI requirements."
+                  : "Every rule you follow already matches current SEBI requirements. Click Sync database rules to re-check."
+              }
               icon={<CheckCircle2 className="h-8 w-8 text-emerald-600" />}
             />
           ) : (
@@ -330,6 +334,8 @@ function ActionItemCard({
   busy: boolean;
 }) {
   const clause = (cr.citation?.clause_path as string) || "SEBI Obligation";
+  const followedRule = (cr.citation?.followed_rule as string) || "";
+  const whatChanged = (cr.citation?.what_changed as string) || "";
 
   return (
     <motion.div
@@ -343,6 +349,11 @@ function ActionItemCard({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
+                {followedRule && (
+                  <span className="rounded-md bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                    Rule you follow: {followedRule}
+                  </span>
+                )}
                 <span className="rounded-md bg-brand-50 px-2 py-0.5 font-mono text-xs font-semibold text-brand-700">
                   {clause}
                 </span>
@@ -357,7 +368,11 @@ function ActionItemCard({
               </div>
               <div className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
                 <Database className="h-3.5 w-3.5 text-brand-600" />
-                <span>Compares your connected database rules against SEBI regulatory standards.</span>
+                <span>
+                  {whatChanged
+                    ? whatChanged
+                    : "Compares the rules you follow against current SEBI requirements."}
+                </span>
                 {cr.approved_by && <span>· Approved by {cr.approved_by}</span>}
               </div>
             </div>
