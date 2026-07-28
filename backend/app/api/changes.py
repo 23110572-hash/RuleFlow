@@ -93,6 +93,7 @@ def change_impact(
 
 @router.get("/firms/{firm_id}/change-requests")
 def list_change_requests(firm_id: str, status: str | None = None, db: Session = Depends(get_db)):
+    change_service.cleanup_spurious_change_requests(db, firm_id)
     stmt = select(ChangeRequest).where(ChangeRequest.firm_id == firm_id)
     if status:
         stmt = stmt.where(ChangeRequest.status == status)
@@ -118,6 +119,7 @@ def rescan_impact(
     of ``document_id`` (or every document, if omitted). Idempotent: change
     events / requests that already exist are not duplicated.
     """
+    change_service.cleanup_spurious_change_requests(db, firm_id)
     if document_id:
         drafts = change_service.detect_impact_on_adopted_obligations(db, document_id, firm_id)
         scanned = 1 if drafts is not None else 0
