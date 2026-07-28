@@ -108,7 +108,7 @@ export const api = {
 
   // change management
   changeRequests: (firmId: string) => request<ChangeRequest[]>(`/firms/${firmId}/change-requests`),
-  databaseRules: (firmId: string) => request<DatabaseRule[]>(`/firms/${firmId}/database-rules`),
+  databaseRules: (firmId: string) => request<DatabaseRulesResult>(`/firms/${firmId}/database-rules`),
   decideChange: (crId: string, decision: string, approver?: string, note?: string) =>
     request(`/change-requests/${crId}/decision`, { method: "POST", body: JSON.stringify({ decision, approver: approver ?? "compliance_officer", note: note ?? "" }) }),
   markChangeApplied: (crId: string, actor?: string) =>
@@ -255,4 +255,21 @@ export type Control = { id: string; firm_id: string; obligation_ids: string[]; d
 export type ControlIn = { obligation_ids: string[]; description: string; type?: string | null; owner_role?: string | null; frequency?: string | null };
 export type EvidenceT = { id: string; firm_id: string; control_id: string | null; description: string; source_system: string | null; hash: string | null; metrics: Record<string, number>; captured_at: string | null };
 export type EvidenceIn = { control_id?: string | null; description: string; source_system?: string | null; metrics?: Record<string, number>; captured_at?: string | null };
-export type DatabaseRule = { id: string; rule_name: string; source_system: string; parameter_value: string; mapped_clause: string; status: string };
+export type DatabaseRule = {
+  id: string; rule_name: string; source_system: string; parameter_value: string;
+  mapped_clause: string; status: string;
+  /** Where the rule came from: an adopted RuleFlow control, or the firm's own database. */
+  origin: "control" | "connected_database";
+  /** The column(s)/value(s) the rule was read from, so a human can verify it. */
+  evidence: string;
+};
+export type DatabaseRulesResult = {
+  rules: DatabaseRule[];
+  connected: boolean;
+  data_source: string | null;
+  tables_read: string[];
+  controls_count: number;
+  database_rules_count: number;
+  /** Explains an empty list (not connected, nothing found, extraction failed). */
+  message: string;
+};

@@ -101,14 +101,23 @@ export default function Compliance() {
           hint="Approve obligations from Approvals or adopt suggestions above to see live test results here."
         />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
+        // Same containment as the Obligation Register: keep the table inside the
+        // rounded card and let it scroll rather than spill out of the box.
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] table-fixed text-sm">
+            <colgroup>
+              <col className="w-[8rem]" />
+              <col className="w-[9rem]" />
+              <col />
+              <col className="w-[7rem]" />
+            </colgroup>
             <thead className="border-b border-ink-100 text-left text-xs uppercase tracking-wide text-ink-400">
               <tr>
-                <th className="px-5 py-3 font-medium">Clause</th>
-                <th className="px-5 py-3 font-medium">Test result</th>
-                <th className="px-5 py-3 font-medium">Detail</th>
-                <th className="px-5 py-3 font-medium">Gap</th>
+                <th className="px-4 py-3 font-medium">Clause</th>
+                <th className="px-4 py-3 font-medium">Test result</th>
+                <th className="px-4 py-3 font-medium">Detail</th>
+                <th className="px-4 py-3 font-medium">Gap</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-50">
@@ -116,18 +125,18 @@ export default function Compliance() {
                 const gap = gapByOb.get(r.obligation_id);
                 return (
                   <tr key={r.obligation_id} className="hover:bg-ink-50/60">
-                    <td className="px-5 py-3 font-mono text-xs text-ink-500 whitespace-nowrap">
+                    <td className="truncate px-4 py-3 align-top font-mono text-xs text-ink-500" title={r.clause_path || undefined}>
                       {r.clause_path || "n/a"}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-4 py-3 align-top">
                       <StatusPill status={r.status} />
                     </td>
-                    <td className="px-5 py-3 text-ink-600">{r.detail}</td>
-                    <td className="px-5 py-3">
+                    <td className="px-4 py-3 align-top text-ink-600">{r.detail}</td>
+                    <td className="px-4 py-3 align-top">
                       {gap ? (
                         <SeverityPill severity={gap.severity} />
                       ) : (
-                        <span className="pill bg-green-50 text-green-700">clear</span>
+                        <span className="pill whitespace-nowrap bg-green-50 text-green-700">clear</span>
                       )}
                     </td>
                   </tr>
@@ -135,6 +144,7 @@ export default function Compliance() {
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

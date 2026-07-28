@@ -140,7 +140,7 @@ export default function Audit() {
     <div>
       <PageHeader
         title="Activity"
-        subtitle="A complete, time-stamped record of everything that happens in your workspace including uploads, approvals, compliance checks, and updates by your team."
+        subtitle="A complete, timestamped record of everything that happens in your workspace including uploads, approvals, compliance checks, and updates by your team."
       />
 
       <div className="mb-4 flex items-center justify-between gap-4">

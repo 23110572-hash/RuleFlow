@@ -93,7 +93,13 @@ def change_impact(
 
 @router.get("/firms/{firm_id}/database-rules")
 def get_database_rules(firm_id: str, db: Session = Depends(get_db)):
-    """Return live rules, policies, and parameters discovered directly from the firm's connected database."""
+    """The rules this firm already follows.
+
+    Read from the firm's adopted controls plus its connected database (the LLM
+    reads the real schema and rows). Returns connection state and a message
+    alongside the rules so the UI can explain an empty list instead of just
+    showing "no rules found".
+    """
     return change_service.get_connected_database_rules(db, firm_id)
 
 

@@ -50,11 +50,12 @@ export default function ChangeRequests() {
     enabled: !!firmId,
   });
 
-  const { data: dbRules = [], isLoading: isLoadingRules } = useQuery({
+  const { data: rulesResult, isLoading: isLoadingRules } = useQuery({
     queryKey: ["database-rules", firmId],
     queryFn: () => api.databaseRules(firmId!),
     enabled: !!firmId,
   });
+  const dbRules = rulesResult?.rules ?? [];
 
   const filteredCRs = useMemo(() => {
     if (actionTab === "all") return changeRequests;
@@ -68,7 +69,8 @@ export default function ChangeRequests() {
       (r) =>
         r.rule_name.toLowerCase().includes(q) ||
         r.source_system.toLowerCase().includes(q) ||
-        r.mapped_clause.toLowerCase().includes(q)
+        r.mapped_clause.toLowerCase().includes(q) ||
+        (r.evidence ?? "").toLowerCase().includes(q)
     );
   }, [dbRules, ruleSearch]);
 
@@ -120,7 +122,10 @@ export default function ChangeRequests() {
 
       {rescan.isSuccess && rescan.data && (
         <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-          Synced connected database: found <span className="font-semibold">{dbRules.length}</span> active rules, updated{" "}
+          Synced {rulesResult?.data_source ?? "your database"}: read{" "}
+          <span className="font-semibold">{rulesResult?.tables_read.length ?? 0}</span> table(s), found{" "}
+          <span className="font-semibold">{rulesResult?.database_rules_count ?? 0}</span> database rule(s) plus{" "}
+          <span className="font-semibold">{rulesResult?.controls_count ?? 0}</span> adopted control(s), and updated{" "}
           <span className="font-semibold">{rescan.data.action_items_created}</span> action items.
         </div>
       )}
@@ -227,16 +232,36 @@ export default function ChangeRequests() {
               />
             </div>
             <span className="text-xs text-ink-400">
-              Fetched from your connected database & controls
+              {rulesResult?.connected && rulesResult.tables_read.length > 0
+                ? `Read by AI from ${rulesResult.data_source} · ${rulesResult.tables_read.length} table(s)`
+                : "Fetched from your connected database & controls"}
             </span>
           </div>
 
+          {/* Explains an empty or partial list instead of a blank "not found". */}
+          {!isLoadingRules && rulesResult?.message && (
+            <div
+              className={cn(
+                "rounded-xl border px-4 py-3 text-sm",
+                rulesResult.connected
+                  ? "border-ink-200 bg-ink-50 text-ink-600"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+              )}
+            >
+              {rulesResult.message}
+            </div>
+          )}
+
           {isLoadingRules ? (
-            <Spinner label="Fetching rules from connected database…" />
+            <Spinner label="Reading your database and extracting rules…" />
           ) : filteredRules.length === 0 ? (
             <EmptyState
-              title="No database rules found"
-              hint="Connect your database in Settings or add firm controls to see your active rules here."
+              title={rulesResult?.connected ? "No rules found in your database" : "No database connected"}
+              hint={
+                rulesResult?.connected
+                  ? "We read your tables but found nothing that looks like a compliance rule. Approving obligations also adds them here."
+                  : "Connect your database in Settings and we will read it to list the rules you already enforce."
+              }
               icon={<Database className="h-8 w-8" />}
             />
           ) : (
@@ -245,31 +270,39 @@ export default function ChangeRequests() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-ink-100 bg-ink-50/60 text-xs font-semibold uppercase tracking-wider text-ink-500">
-                      <th className="px-5 py-3">Rule / Policy Followed</th>
-                      <th className="px-5 py-3">Source System</th>
-                      <th className="px-5 py-3">Active Parameter</th>
-                      <th className="px-5 py-3">Mapped SEBI Clause</th>
-                      <th className="px-5 py-3">Status</th>
+                      <th className="px-4 py-3">Rule / Policy Followed</th>
+                      <th className="px-4 py-3">Read from</th>
+                      <th className="px-4 py-3">Active Parameter</th>
+                      <th className="px-4 py-3">Mapped SEBI Clause</th>
+                      <th className="px-4 py-3">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-ink-100">
                     {filteredRules.map((r) => (
-                      <tr key={r.id} className="transition-colors hover:bg-ink-50/40">
-                        <td className="px-5 py-3.5 text-sm font-medium text-ink-900">
+                      <tr key={r.id} className="align-top transition-colors hover:bg-ink-50/40">
+                        <td className="px-4 py-3.5 text-sm font-medium text-ink-900">
                           {r.rule_name}
+                          {/* Evidence keeps every AI-extracted rule checkable
+                              against the actual data it came from. */}
+                          {r.evidence && (
+                            <div className="mt-1 text-[11px] font-normal text-ink-400">{r.evidence}</div>
+                          )}
                         </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 text-xs text-ink-600">
+                        <td className="px-4 py-3.5 text-xs text-ink-600">
                           <span className="inline-flex items-center gap-1 rounded-md bg-ink-50 px-2 py-1 font-mono">
                             <Database className="h-3 w-3 text-brand-600" /> {r.source_system}
                           </span>
+                          <div className="mt-1 text-[11px] text-ink-400">
+                            {r.origin === "connected_database" ? "your database" : "adopted control"}
+                          </div>
                         </td>
-                        <td className="px-5 py-3.5 text-xs font-mono text-ink-700">
+                        <td className="px-4 py-3.5 font-mono text-xs text-ink-700">
                           {r.parameter_value}
                         </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 text-xs font-mono text-brand-700">
+                        <td className="px-4 py-3.5 font-mono text-xs text-brand-700">
                           {r.mapped_clause}
                         </td>
-                        <td className="whitespace-nowrap px-5 py-3.5">
+                        <td className="whitespace-nowrap px-4 py-3.5">
                           <StatusPill status={r.status === "active" ? "green" : "amber"} label={r.status === "active" ? "Active" : "Review"} />
                         </td>
                       </tr>

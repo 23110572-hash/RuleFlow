@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,7 @@ from app.db.models import (
     ChangeEvent,
     ChangeRequest,
     Control,
+    DataSource,
     Document,
     Firm,
     Obligation,
@@ -288,162 +290,236 @@ def mark_applied(db: Session, change_request_id: str, actor: str) -> ChangeReque
     return cr
 
 
-CATEGORY_RULE_TEMPLATES: dict[str, list[dict[str, str]]] = {
-    "investment_adviser": [
-        {"rule_name": "Client Risk Profiling & Suitability Assessment", "source_system": "Adviser Portal DB (clients)", "parameter_value": "Prior to advice / Annual refresh", "mapped_clause": "SEBI/IA/REG-16(1)", "status": "active"},
-        {"rule_name": "Fee Cap & Bank Channel Collection", "source_system": "Billing System (fees)", "parameter_value": "Max 2.5% AUM / Bank Transfer only", "mapped_clause": "SEBI/IA/CIRCULAR-2020", "status": "active"},
-        {"rule_name": "Conflict of Interest Written Disclosure", "source_system": "Compliance Register (disclosures)", "parameter_value": "Mandatory written disclosure", "mapped_clause": "SEBI/IA/CODE-OF-CONDUCT", "status": "active"},
-        {"rule_name": "Record Keeping & Correspondence Archival", "source_system": "Document Archival System", "parameter_value": "5 Years retention requirement", "mapped_clause": "SEBI/IA/REG-19(2)", "status": "active"},
-        {"rule_name": "Annual Compliance Audit Attestation", "source_system": "Audit Ledger (attestations)", "parameter_value": "Within 6 months of FY end", "mapped_clause": "SEBI/IA/REG-19(3)", "status": "active"},
-    ],
-    "stock_broker": [
-        {"rule_name": "Client Fund & Securities Segregation", "source_system": "Broker Core DB (ledgers)", "parameter_value": "Daily reconciliation at 18:00 IST", "mapped_clause": "SEBI/HO/MIRSD/DOP/CIR/P/2021/614", "status": "active"},
-        {"rule_name": "Upfront Margin Collection Enforcement", "source_system": "RMS Trading Engine", "parameter_value": "100% upfront VAR+ELM margin", "mapped_clause": "SEBI/HO/MRD/DRMNP/CIR/P/2019/148", "status": "active"},
-        {"rule_name": "KRA KYC Verification & Status Lock", "source_system": "KYC Onboarding DB", "parameter_value": "24h Strict KRA validation", "mapped_clause": "SEBI/HO/MIRSD/FATF/CIR/P/2023/014", "status": "active"},
-        {"rule_name": "Cyber Security & VAPT Audit Submission", "source_system": "IT Security Log DB", "parameter_value": "Biannual VAPT submission", "mapped_clause": "SEBI/HO/MIRSD/CIR/P/2018/147", "status": "active"},
-    ],
-    "depository_participant": [
-        {"rule_name": "DIS Dual Factor Authentication", "source_system": "DP Core System", "parameter_value": "2FA on off-market transfer > ₹5 Lakhs", "mapped_clause": "SEBI/DP/CIR-2022", "status": "active"},
-        {"rule_name": "Pledge / Re-pledge Ledger Reconciliation", "source_system": "Depository Gateway", "parameter_value": "Real-time collateral balance sync", "mapped_clause": "SEBI/HO/MIRSD/DOP/CIR/P/2020/158", "status": "active"},
-    ],
-}
+DB_RULE_SYSTEM = """You are the Database Rule Extraction Agent for a SEBI compliance platform.
+
+You are given the REAL schema and sample rows of a SEBI-regulated firm's own
+operational database. Your job is to state which compliance rules, policies,
+limits and controls this firm is ALREADY enforcing, based only on what the data
+actually shows.
+
+Hard rules:
+- Ground every rule in the data. Only describe a rule if a table, column or
+  value in the supplied context evidences it.
+- "source_table" MUST be one of the table names supplied to you. Never invent a
+  table name.
+- "evidence" MUST name the specific column(s) or value(s) that led you to the
+  rule, so a human can go and look at them.
+- NEVER invent a SEBI circular number, regulation number or clause reference. If
+  the data itself does not contain one, set "mapped_clause" to null. A wrong
+  citation is worse than no citation.
+- If the database holds no compliance-relevant rules (e.g. it is only trade or
+  price data), return an empty list. Returning nothing is a correct answer.
+- Prefer a few well-evidenced rules over many speculative ones.
+
+Return JSON:
+{"rules": [
+  {
+    "rule_name": "<short name of the rule the firm enforces>",
+    "source_table": "<one of the supplied table names>",
+    "evidence": "<the column(s)/value(s) that show this>",
+    "parameter_value": "<the actual limit/threshold/cadence found, or 'present'>",
+    "mapped_clause": "<a citation ONLY if it literally appears in the data, else null>"
+  }
+]}"""
 
 
-def get_connected_database_rules(db: Session, firm_id: str) -> list[dict]:
-    """Fetch live rules, policies, and parameters discovered directly from the
-    broker's connected database tables and mapped controls overlay using Groq LLM.
+def _reflect_connected_database(
+    data_source: DataSource, max_tables: int = 12, max_rows: int = 5
+) -> tuple[dict, str | None]:
+    """Read the firm's OWN database: {table: {columns, sample_rows}}.
+
+    Read-only reflection plus a small sample of rows, which is what the LLM needs
+    to tell a compliance table apart from a price feed. Returns (context, error).
+    """
+    from sqlalchemy import inspect, text
+
+    from app.services.datasource_service import _create_db_engine
+
+    context: dict[str, dict] = {}
+    engine = None
+    try:
+        engine = _create_db_engine(data_source.kind, data_source.connection_uri)
+        inspector_obj = inspect(engine)
+        with engine.connect() as conn:
+            for table in inspector_obj.get_table_names()[:max_tables]:
+                columns = [c["name"] for c in inspector_obj.get_columns(table)]
+                # Table names come from the driver's own reflection, not user
+                # input, so they cannot carry injected SQL.
+                rows = conn.execute(
+                    text(f'SELECT * FROM "{table}" LIMIT :n'), {"n": max_rows}
+                ).mappings().all()
+                context[table] = {
+                    "columns": columns[:25],
+                    "sample_rows": [
+                        {k: str(v)[:120] for k, v in dict(r).items()} for r in rows
+                    ],
+                }
+        return context, None
+    except Exception as exc:
+        log = structlog.get_logger(__name__)
+        log.warning("connected_db_reflection_failed", error=str(exc)[:300])
+        return {}, str(exc)[:300]
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
+def _llm_rules_from_database(
+    firm_category: str, source_name: str, context: dict
+) -> list[dict]:
+    """Ask the LLM which rules the firm already enforces, then verify grounding.
+
+    Any rule naming a table that is not actually in the schema is dropped, and a
+    citation is only kept when the model was able to point at real data.
     """
     import json
-    from sqlalchemy import select, inspect, text
-    from app.db.models import Control, DataSource, Obligation, Firm
-    from app.services.datasource_service import _create_db_engine
+
     from app.llm.client import get_llm
 
+    llm = get_llm()
+    if not llm.enabled or not context:
+        return []
+
+    payload = llm.complete_json(
+        DB_RULE_SYSTEM,
+        (
+            f"Firm category: {firm_category}\n"
+            f"Database: {source_name}\n"
+            f"Tables available: {list(context)}\n\n"
+            f"Schema and sample rows:\n{json.dumps(context, default=str)[:12000]}"
+        ),
+    )
+    raw = (payload or {}).get("rules", []) if isinstance(payload, dict) else []
+
+    known_tables = {t.lower() for t in context}
+    rules: list[dict] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("rule_name") or "").strip()
+        table = str(item.get("source_table") or "").strip()
+        # Grounding gate: the agent proposes, we verify the table is real.
+        if not name or table.lower() not in known_tables:
+            continue
+        evidence = str(item.get("evidence") or "").strip()
+        clause = item.get("mapped_clause")
+        clause = str(clause).strip() if clause else ""
+        rules.append(
+            {
+                "id": f"db_{table}_{idx}",
+                "rule_name": name,
+                "source_system": f"{source_name} · {table}",
+                "parameter_value": str(item.get("parameter_value") or "present").strip(),
+                "mapped_clause": clause or "not mapped to a circular yet",
+                "status": "active",
+                "origin": "connected_database",
+                "evidence": evidence,
+            }
+        )
+    return rules
+
+
+def get_connected_database_rules(db: Session, firm_id: str) -> dict:
+    """What rules is this firm ALREADY following?
+
+    Exactly two grounded sources, and nothing else:
+
+      1. Controls in RuleFlow's own record — obligations the firm approved, so
+         these are rules it has explicitly committed to.
+      2. The firm's connected database, read by the LLM. The agent proposes;
+         ``_llm_rules_from_database`` then verifies every rule names a table that
+         really exists before it is shown.
+
+    Nothing is fabricated. Earlier versions filled this list with hardcoded
+    per-category templates and let the LLM invent SEBI circular numbers with an
+    empty database context, which told a compliance officer they were following
+    rules that exist nowhere in their systems. If there is nothing to report we
+    return an empty list and say why.
+    """
+    from app.db.models import Control, DataSource, Firm, Obligation
+
+    log = structlog.get_logger(__name__)
+
     firm = db.get(Firm, firm_id)
-    firm_category = (firm.category if firm else "stock_broker").lower().strip()
+    firm_category = (firm.category if firm else "").lower().strip()
 
     rules: list[dict] = []
 
-    # 1. Fetch controls configured for the firm
+    # 1. Controls the firm has adopted inside RuleFlow.
     controls = db.execute(
-        select(Control).where(Control.firm_id == firm_id)
+        select(Control).where(Control.firm_id == firm_id, Control.status == "active")
     ).scalars().all()
-
     for c in controls:
-        mapped_clause = "n/a"
-        if c.obligation_ids:
-            ob = db.get(Obligation, c.obligation_ids[0])
+        mapped_clause = ""
+        for ob_id in c.obligation_ids or []:
+            ob = db.get(Obligation, ob_id)
             if ob and ob.clause_path:
                 mapped_clause = ob.clause_path
+                break
+        rules.append(
+            {
+                "id": f"ctrl_{c.id}",
+                "rule_name": c.description,
+                # Control has no source_system column. Reading one raised
+                # AttributeError and 500'd this endpoint, which is why the panel
+                # showed "No database rules found".
+                "source_system": "RuleFlow control record",
+                "parameter_value": c.frequency or "ongoing",
+                "mapped_clause": mapped_clause or "not mapped to a circular yet",
+                "status": c.status or "active",
+                "origin": "control",
+                "evidence": f"Adopted control owned by {c.owner_role or 'the firm'}",
+            }
+        )
 
-        rules.append({
-            "id": f"ctrl_{c.id}",
-            "rule_name": c.description,
-            "source_system": c.source_system or "Firm Control Record",
-            "parameter_value": c.frequency or "Active rule",
-            "mapped_clause": mapped_clause,
-            "status": c.status or "active",
-        })
-
-    # 2. Inspect connected database tables for live system rule records
+    # 2. The firm's own database, read by the LLM.
     ds = db.execute(
         select(DataSource).where(DataSource.firm_id == firm_id)
     ).scalars().first()
 
-    db_context: dict[str, dict] = {}
-    if ds and ds.connection_uri:
-        try:
-            engine = _create_db_engine(ds.kind, ds.connection_uri)
-            inspector_obj = inspect(engine)
-            tables = inspector_obj.get_table_names()
-            for tbl in tables[:6]:
-                with engine.connect() as conn:
-                    cols = [c["name"] for c in inspector_obj.get_columns(tbl)[:15]]
-                    rows = conn.execute(text(f"SELECT * FROM {tbl} LIMIT 5")).mappings().all()
-                    db_context[tbl] = {
-                        "columns": cols,
-                        "sample_rows": [dict(r) for r in rows[:3]]
-                    }
-                    for idx, row in enumerate(rows[:3]):
-                        for k, v in row.items():
-                            if v and isinstance(v, str) and len(str(v)) > 5:
-                                rules.append({
-                                    "id": f"db_{tbl}_{idx}_{k}",
-                                    "rule_name": f"{tbl}.{k}: {str(v)[:60]}",
-                                    "source_system": f"{ds.name} ({tbl})",
-                                    "parameter_value": f"Active value in {k}",
-                                    "mapped_clause": "Connected Database Rule",
-                                    "status": "active",
-                                })
-            engine.dispose()
-        except Exception as err:
-            import structlog
-            structlog.get_logger(__name__).warning("db_inspection_failed", error=str(err))
+    connected = False
+    tables_read: list[str] = []
+    message = ""
 
-    # 3. Use Groq LLM to extract/analyze rules from connected DB schema & rows
-    try:
-        llm = get_llm()
-        if llm.enabled:
-            prompt = (
-                f"Broker firm category: {firm_category}\n"
-                f"Connected database context: {json.dumps(db_context, default=str)}\n"
-                f"Configured controls: {[c.description for c in controls]}\n\n"
-                "Analyze the database schema and controls to extract 4 to 8 operational compliance rules, "
-                "policies, and parameters followed by this SEBI intermediary. "
-                "Return JSON with key 'rules' containing a list of objects. "
-                "Each object MUST contain: rule_name, source_system, parameter_value, mapped_clause, status."
-            )
-            resp = llm.complete_json(
-                "You are a SEBI compliance inspection AI that analyzes database rules.",
-                prompt
-            )
-            if resp and isinstance(resp, dict) and "rules" in resp and isinstance(resp["rules"], list):
-                existing_names = {r["rule_name"].lower() for r in rules}
-                for idx, r in enumerate(resp["rules"]):
-                    r_name = str(r.get("rule_name", "")).strip()
-                    if r_name and r_name.lower() not in existing_names:
-                        rules.append({
-                            "id": f"llm_rule_{idx}",
-                            "rule_name": r_name,
-                            "source_system": str(r.get("source_system", ds.name if ds else "Connected System")),
-                            "parameter_value": str(r.get("parameter_value", "Active parameter")),
-                            "mapped_clause": str(r.get("mapped_clause", "SEBI Requirement")),
-                            "status": str(r.get("status", "active")),
-                        })
-    except Exception as e:
-        import structlog
-        structlog.get_logger(__name__).warning("get_connected_database_rules.llm_failed", error=str(e))
+    if not ds or not ds.connection_uri:
+        message = (
+            "No database connected. Connect your firm's database in Settings and "
+            "we will read it to list the rules you already enforce."
+        )
+    else:
+        context, error = _reflect_connected_database(ds)
+        if error:
+            message = f"Could not read {ds.name}: {error}"
+        elif not context:
+            connected = True
+            message = f"{ds.name} is connected but contains no tables to read."
+        else:
+            connected = True
+            tables_read = list(context)
+            try:
+                found = _llm_rules_from_database(firm_category, ds.name, context)
+                rules.extend(found)
+                if not found:
+                    message = (
+                        f"Read {len(tables_read)} table(s) in {ds.name} but found no "
+                        "compliance rules in them."
+                    )
+            except Exception as exc:
+                log.warning("database_rule_extraction_failed", error=str(exc)[:300])
+                message = (
+                    "We reached your database but the AI extraction step failed: "
+                    f"{str(exc)[:200]}"
+                )
 
-    # 4. Guarantee rule population from SEBI obligations and Category Rule Templates
-    if len(rules) < 3:
-        # Pull SEBI obligations from DB
-        sebi_obs = db.execute(
-            select(Obligation).limit(6)
-        ).scalars().all()
-        for idx, ob in enumerate(sebi_obs):
-            rules.append({
-                "id": f"fallback_ob_{idx}",
-                "rule_name": ob.normalized_statement or ob.verbatim_text[:80],
-                "source_system": "SEBI Compliance Register",
-                "parameter_value": ob.threshold or ob.deadline_or_periodicity or "Mandatory requirement",
-                "mapped_clause": ob.clause_path or "SEBI Rule",
-                "status": "active",
-            })
-
-    if len(rules) < 3:
-        # Apply firm category template rules
-        tmpl_rules = CATEGORY_RULE_TEMPLATES.get(firm_category, CATEGORY_RULE_TEMPLATES["stock_broker"])
-        for idx, t in enumerate(tmpl_rules):
-            rules.append({
-                "id": f"tmpl_rule_{idx}",
-                "rule_name": t["rule_name"],
-                "source_system": t["source_system"],
-                "parameter_value": t["parameter_value"],
-                "mapped_clause": t["mapped_clause"],
-                "status": t["status"],
-            })
-
-    return rules
+    return {
+        "rules": rules,
+        "connected": connected,
+        "data_source": ds.name if ds else None,
+        "tables_read": tables_read,
+        "controls_count": len(controls),
+        "database_rules_count": sum(1 for r in rules if r["origin"] == "connected_database"),
+        "message": message,
+    }
 
 
 def scan_firm_database_for_changes(
@@ -466,7 +542,7 @@ def scan_firm_database_for_changes(
         return []
 
     # Fetch live rules from connected DB & controls
-    connected_rules = get_connected_database_rules(db, firm_id)
+    connected_rules = get_connected_database_rules(db, firm_id)["rules"]
 
     # Fetch SEBI obligations for this firm category
     stmt = select(Obligation).where(
