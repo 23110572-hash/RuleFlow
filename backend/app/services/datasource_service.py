@@ -24,13 +24,22 @@ def _normalise_uri(kind: str, uri: str) -> str:
         uri = uri.replace("postgresql://", "postgresql+psycopg://", 1)
     elif uri.startswith("mysql://"):
         uri = uri.replace("mysql://", "mysql+pymysql://", 1)
+    elif kind == "sqlite" and not uri.startswith("sqlite"):
+        uri = f"sqlite:///{uri}"
     return uri
+
+
+def _create_db_engine(kind: str, uri: str):
+    """Safely create an engine for PostgreSQL, MySQL, or SQLite."""
+    norm_uri = _normalise_uri(kind, uri)
+    kwargs = {"pool_pre_ping": True} if not norm_uri.startswith("sqlite") else {}
+    return create_engine(norm_uri, **kwargs)
 
 
 def test_connection(kind: str, uri: str) -> dict:
     """Open the connection and reflect table names. Returns {ok, tables|error}."""
     try:
-        engine = create_engine(_normalise_uri(kind, uri), pool_pre_ping=True)
+        engine = _create_db_engine(kind, uri)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             tables = inspect(engine).get_table_names()

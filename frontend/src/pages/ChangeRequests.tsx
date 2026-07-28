@@ -90,11 +90,12 @@ export default function ChangeRequests() {
   });
 
   const rescan = useMutation({
-    mutationFn: () => api.rescanImpact(firmId!),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["change-requests"] });
-      qc.invalidateQueries({ queryKey: ["database-rules"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    mutationFn: async () => {
+      const res = await api.rescanImpact(firmId!);
+      await qc.refetchQueries({ queryKey: ["database-rules", firmId] });
+      await qc.refetchQueries({ queryKey: ["change-requests", firmId] });
+      await qc.refetchQueries({ queryKey: ["dashboard", firmId] });
+      return res;
     },
   });
 
