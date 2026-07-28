@@ -121,6 +121,54 @@ def segment_clauses(text: str, page_offsets: list[int] | None = None) -> list[Cl
         # Continuation of the current clause; keep accumulating.
 
     close(current, len(text))
+    if not units:
+        # No numbered clause survived. Rather than returning nothing (which used
+        # to make the whole pipeline finish instantly with zero obligations and
+        # no explanation), fall back to paragraph blocks so every document that
+        # has text always produces something to analyse.
+        units = _paragraph_units(text, page_offsets)
+    return units
+
+
+def _paragraph_units(
+    text: str, page_offsets: list[int] | None = None, min_chars: int = 80
+) -> list[ClauseUnit]:
+    """Fallback segmentation for documents with no recognisable clause numbering.
+
+    Splits on blank lines and keeps blocks with enough substance to hold an
+    obligation. Offsets stay exact so citations remain verifiable.
+    """
+    units: list[ClauseUnit] = []
+    offset = 0
+    block_start = 0
+    buf: list[str] = []
+
+    def flush(end: int) -> None:
+        body = "".join(buf)
+        if len(body.strip()) >= min_chars:
+            units.append(
+                ClauseUnit(
+                    clause_path=f"para {len(units) + 1}",
+                    text=body,
+                    char_start=block_start,
+                    char_end=end,
+                    page=_page_for_offset(block_start, page_offsets),
+                    depth=0,
+                )
+            )
+
+    for line in text.splitlines(keepends=True):
+        if not line.strip():
+            flush(offset)
+            offset += len(line)
+            buf = []
+            block_start = offset
+            continue
+        if not buf:
+            block_start = offset
+        buf.append(line)
+        offset += len(line)
+    flush(offset)
     return units
 
 

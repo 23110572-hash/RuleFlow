@@ -15,7 +15,12 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 def _doc_out(db: Session, doc: Document) -> DocumentOut:
     ob_count = db.execute(
-        select(func.count(Obligation.id)).where(Obligation.source_document_id == doc.id)
+        select(func.count(Obligation.id)).where(
+            Obligation.source_document_id == doc.id,
+            # Results of a previous analysis of the same document are retired,
+            # not deleted; they must not inflate the live count.
+            Obligation.status != "superseded",
+        )
     ).scalar_one()
     cov = db.execute(
         select(CoverageReport).where(CoverageReport.document_id == doc.id)
@@ -121,13 +126,49 @@ def ingest_document_pdf(
 
 
 @router.get("/{document_id}/progress")
-def get_progress(document_id: str):
+def get_progress(document_id: str, db: Session = Depends(get_db)):
+    """Live progress for an in-flight analysis.
+
+    The in-memory tracker is per-process and is lost on restart/redeploy, so when
+    there is no entry we answer from the database instead of inventing a
+    successful-but-empty result (which is what used to make a finished 81
+    obligation document report "done, 0 obligations found").
+    """
     from app.services import progress
+
     prog = progress.get(document_id)
-    if not prog:
-        return {"document_id": document_id, "status": "done", "percent": 100,
-                "total_clauses": 0, "processed_clauses": 0, "obligations_found": 0, "error": None}
-    return prog.to_dict()
+    if prog:
+        return prog.to_dict()
+
+    doc = db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(404, "document not found")
+
+    ob_count = db.execute(
+        select(func.count(Obligation.id)).where(
+            Obligation.source_document_id == doc.id, Obligation.status != "superseded"
+        )
+    ).scalar_one()
+
+    if doc.status == "error":
+        status, error = "error", "Analysis failed. Please upload the document again."
+    elif doc.status in ("parsing", "extracting"):
+        # The worker died with the process; nothing is running any more.
+        status, error = "error", "Analysis was interrupted (the server restarted). Please upload again."
+    else:
+        status, error = "done", None
+
+    return {
+        "document_id": document_id,
+        "status": status,
+        "percent": 100,
+        "total_clauses": 0,
+        "processed_clauses": 0,
+        "obligations_found": ob_count,
+        "failed_clauses": 0,
+        "action_items_generated": 0,
+        "error": error,
+    }
 
 
 @router.get("/{document_id}/coverage", response_model=CoverageOut)

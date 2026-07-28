@@ -136,7 +136,9 @@ def auto_discover_schema(db: Session, data_source: DataSource) -> dict:
     ).scalars().all()
     existing_linked_obs = {oid for c in existing_controls for oid in (c.obligation_ids or [])}
 
-    obligations = db.execute(select(Obligation)).scalars().all()
+    obligations = db.execute(
+        select(Obligation).where(Obligation.status != "superseded")
+    ).scalars().all()
     controls_created = 0
 
     for ob in obligations:

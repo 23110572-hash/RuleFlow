@@ -11,7 +11,13 @@ const STAGES = [
 
 const STATUS_ORDER = ["parsing", "extracting", "enriching", "coverage", "done"];
 
-export type FlowResult = { obligations: number; coverage: number | null; actionItems?: number } | null;
+export type FlowResult = {
+  obligations: number;
+  clauses: number;
+  /** Duty sentences the extraction did not account for — a review checklist, not a score. */
+  toReview: number | null;
+  actionItems?: number;
+} | null;
 
 export function AgentFlow({
   running,
@@ -111,22 +117,24 @@ export function AgentFlow({
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-5 grid grid-cols-2 gap-3"
+          className="mt-5 grid grid-cols-3 gap-3"
         >
           <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
+            <div className="text-2xl font-semibold text-ink-900">{result.clauses}</div>
+            <div className="text-xs text-ink-400">clauses read</div>
+          </div>
+          <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
             <div className="text-2xl font-semibold text-ink-900">{result.obligations}</div>
-            <div className="text-xs text-ink-400">obligations found</div>
+            <div className="text-xs text-ink-400">obligations captured</div>
           </div>
           <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
             <div className="text-2xl font-semibold text-ink-900">
-              {result.obligations > 0 && result.coverage !== null
-                ? `${Math.round(result.coverage * 100)}%`
-                : "n/a"}
+              {result.toReview ?? "—"}
             </div>
-            <div className="text-xs text-ink-400">coverage of the circular</div>
+            <div className="text-xs text-ink-400">sentences to review</div>
           </div>
           {(result.actionItems ?? 0) > 0 && (
-            <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+            <div className="col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
               <div className="flex items-center justify-center gap-2 text-amber-700">
                 <GitPullRequest className="h-5 w-5" />
                 <span className="text-lg font-semibold">{result.actionItems}</span>
@@ -137,9 +145,20 @@ export function AgentFlow({
         </motion.div>
       )}
 
+      {/* Partial failure: some clauses were captured, some could not be analysed.
+          Previously this was invisible and the run looked perfectly clean. */}
+      {done && !error && result && (progress?.failed_clauses ?? 0) > 0 && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+          {progress!.failed_clauses} of {result.clauses} clauses could not be analysed, so this
+          register may be incomplete. Upload the document again to retry those clauses.
+        </div>
+      )}
+
       {done && !error && result && result.obligations === 0 && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
-          No obligations were detected. Please make sure you uploaded a SEBI circular or master circular.
+          {result.clauses > 0
+            ? `We read ${result.clauses} clauses but none of them imposed an obligation. This is normal for a covering letter or a notice; please check you uploaded the circular itself.`
+            : "No obligations were detected. Please make sure you uploaded a SEBI circular or master circular."}
         </div>
       )}
 

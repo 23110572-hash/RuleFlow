@@ -23,6 +23,18 @@ class Settings(BaseSettings):
     llm_model: str = "groq/llama-3.3-70b-versatile"
     llm_temperature: float = 0.0
 
+    # An explicit output cap is REQUIRED for OpenRouter: with no max_tokens it
+    # pre-authorises the model's full output ceiling (16k+ for gpt-4o-mini)
+    # against the key's remaining budget and rejects the call with HTTP 402
+    # ("requires more credits, or fewer max_tokens") even when credit remains.
+    # Extraction responses are small JSON objects, so a tight cap is correct.
+    llm_max_tokens: int = 1500
+    llm_timeout: int = 90
+    llm_num_retries: int = 2
+    # Fall back to Groq when the primary (OpenRouter) call fails and a Groq key
+    # is configured, so one provider being out of credit does not kill a run.
+    llm_fallback_model: str = "groq/llama-3.3-70b-versatile"
+
 
     # Embeddings
     embedding_model: str = ""
@@ -70,6 +82,18 @@ class Settings(BaseSettings):
     @property
     def is_openrouter(self) -> bool:
         return self.llm_model.startswith("openrouter/")
+
+    @property
+    def llm_fallback_enabled(self) -> bool:
+        """True when a secondary provider is available for retry after a hard
+        failure on the primary. Today that means: primary is OpenRouter and a
+        Groq key is configured."""
+        return bool(
+            self.llm_fallback_model
+            and self.llm_fallback_model != self.llm_model
+            and self.is_openrouter
+            and self.groq_api_key
+        )
 
     @property
     def llm_enabled(self) -> bool:

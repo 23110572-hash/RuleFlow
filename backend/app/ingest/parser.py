@@ -116,6 +116,16 @@ def parse_pdf_bytes(data: bytes, ocr_threshold_chars: int = 40) -> ParsedDocumen
         parts.append(page_text)
         running += len(page_text) + 1  # +1 for the join newline
     full = "\n".join(parts)
+    if len(full.strip()) < 200:
+        # Nothing usable came out of the PDF. Almost always a scanned/image-only
+        # document with no text layer and no OCR backend installed. Fail loudly
+        # here instead of letting the pipeline "succeed" with zero obligations.
+        raise ValueError(
+            "No readable text could be extracted from this PDF "
+            f"({doc.page_count} page(s), {len(full.strip())} characters found). "
+            "It looks like a scanned or image-only document. Please upload a "
+            "text-based PDF of the circular, or paste its text instead."
+        )
     clauses = segment_clauses(full, page_offsets)
     return ParsedDocument(
         text=full,

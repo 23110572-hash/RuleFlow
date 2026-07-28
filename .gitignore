@@ -1,0 +1,33 @@
+# Secrets — never commit. backend/.env holds DATABASE_URL and the LLM API keys.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend build output
+node_modules/
+dist/
+.vite/
+
+# Local SQLite databases and stored artifacts
+*.sqlite
+*.sqlite3
+*.db
+backend/storage/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Throwaway diagnostic scripts
+_diag_*.py

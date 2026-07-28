@@ -166,10 +166,13 @@ export type IngestText = { title: string; text: string; circular_number?: string
 export type IngestionProgress = {
   document_id: string; status: string; percent: number;
   total_clauses: number; processed_clauses: number;
-  obligations_found: number; action_items_generated: number; error: string | null;
+  obligations_found: number; failed_clauses?: number;
+  action_items_generated: number; error: string | null;
 };
 export type Obligation = {
-  id: string; source_document_id: string; clause_path: string; verbatim_text: string;
+  id: string; source_document_id: string;
+  source_document_title: string | null; source_circular_number: string | null;
+  clause_path: string; verbatim_text: string;
   normalized_statement: string; modality: string; deadline_or_periodicity: string | null;
   threshold: string | null; applies_to: { category: string; tier: string | null }[];
   citation: Record<string, unknown>; citation_fidelity: number; status: string;

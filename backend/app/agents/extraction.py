@@ -58,9 +58,18 @@ class ExtractionResult:
     obligations: list[ProposedObligation] = field(default_factory=list)
     clauses_processed: int = 0
     flagged: int = 0
+    #: clauses whose extraction raised (LLM/network failure), not clauses that
+    #: legitimately contained no obligation. A run where this equals
+    #: clauses_processed is a FAILED run, not an empty document.
+    clauses_failed: int = 0
+    last_error: str = ""
 
     def verified(self) -> list[ProposedObligation]:
         return [o for o in self.obligations if o.status == "verified"]
+
+    @property
+    def totally_failed(self) -> bool:
+        return self.clauses_processed > 0 and self.clauses_failed >= self.clauses_processed
 
 
 def _locate_in_clause(document_text: str, clause: ClauseUnit, quote: str) -> tuple[int, int]:

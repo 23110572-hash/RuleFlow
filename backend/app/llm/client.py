@@ -18,38 +18,62 @@ from app.config import settings
 log = structlog.get_logger(__name__)
 
 
+def _api_key_for(model: str) -> str:
+    return settings.openrouter_api_key if model.startswith("openrouter/") else settings.groq_api_key
+
+
 class LLMClient:
     def __init__(self) -> None:
         self.model = settings.llm_model
         self.temperature = settings.llm_temperature
         self.enabled = settings.llm_enabled
 
-    def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
-        if not self.enabled:
-            raise RuntimeError(
-                "LLM not configured. Please set the appropriate API key (GROQ_API_KEY or OPENROTER_API_KEY) in your environment."
-            )
+    def _call(self, model: str, messages: list[dict[str, str]], **kwargs: Any) -> str:
         import litellm
-
-        # Per-provider auth:
-        auth: dict[str, Any] = {}
-        if settings.is_openrouter:
-            auth["api_key"] = settings.openrouter_api_key
-        else:
-            auth["api_key"] = settings.groq_api_key
 
         # Some providers/models don't support every param (e.g. response_format
         # JSON mode); let LiteLLM drop unsupported ones instead of erroring.
         litellm.drop_params = True
 
         resp = litellm.completion(
-            model=self.model,
+            model=model,
             messages=messages,
             temperature=kwargs.pop("temperature", self.temperature),
-            **auth,
+            # max_tokens is NOT optional. OpenRouter pre-authorises the model's
+            # full output ceiling when it is omitted and returns HTTP 402 even
+            # with credit remaining. See settings.llm_max_tokens.
+            max_tokens=kwargs.pop("max_tokens", settings.llm_max_tokens),
+            timeout=kwargs.pop("timeout", settings.llm_timeout),
+            num_retries=kwargs.pop("num_retries", settings.llm_num_retries),
+            api_key=_api_key_for(model),
             **kwargs,
         )
         return resp["choices"][0]["message"]["content"]
+
+    def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
+        if not self.enabled:
+            raise RuntimeError(
+                "LLM not configured. Please set the appropriate API key "
+                "(GROQ_API_KEY or OPENROUTER_API_KEY) in your environment."
+            )
+        try:
+            return self._call(self.model, messages, **kwargs)
+        except Exception as primary_exc:
+            if not settings.llm_fallback_enabled:
+                raise
+            log.warning(
+                "llm_primary_failed_trying_fallback",
+                primary=self.model,
+                fallback=settings.llm_fallback_model,
+                error=str(primary_exc)[:300],
+            )
+            try:
+                return self._call(settings.llm_fallback_model, messages, **kwargs)
+            except Exception as fallback_exc:
+                raise RuntimeError(
+                    f"Both LLM providers failed. {self.model}: {primary_exc}. "
+                    f"{settings.llm_fallback_model}: {fallback_exc}"
+                ) from fallback_exc
 
     def complete_json(self, system: str, user: str, **kwargs: Any) -> Any:
         """Ask for strict JSON and parse it. Raises on failure — there is no

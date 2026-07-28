@@ -1,14 +1,21 @@
-"""Coverage Certificate (deterministic).
+"""Review checklist (deterministic).
 
 Sweeps every obligation-signal phrase in a document ("shall", "must",
 "required to", "no person shall", "shall not", ...) and accounts for each one:
 
-    extracted            -> a proposed obligation's citation span covers it
-    not_applicable       -> a human/agent marked this span N/A, WITH a reason
-    unaccounted          -> nobody has explained this signal yet
+    extracted      -> the clause this signal sits in produced an obligation
+    unaccounted    -> nobody has explained this signal yet; a human should read it
 
-A chatbot cannot offer this. The certificate gives *provable completeness*: a
-human can read exactly which "shall" sentences the system did not capture.
+The output is a *checklist*, not a score. Deliberately NOT a percentage: the
+ratio of duty-words that happen to fall inside a captured clause says nothing
+useful about extraction quality, and presenting it as "45% coverage" made a
+correct run look like a failure. What is genuinely valuable — and what no
+chatbot can offer — is the explicit list of duty sentences the system did not
+capture, so a compliance officer can read them and decide.
+
+``coverage_ratio`` is still computed because the column exists on
+CoverageReport and the diff/dashboard code reads it, but no UI presents it as
+a headline accuracy number.
 """
 from __future__ import annotations
 
@@ -31,7 +38,22 @@ SIGNAL_PATTERNS: list[str] = [
     r"may\s+not",
 ]
 
+# Administrative boilerplate that ends every SEBI circular. These sentences
+# contain a duty word but impose no obligation on the intermediary, so counting
+# them as "missed obligations" permanently padded the checklist with noise.
+BOILERPLATE_PATTERNS: list[str] = [
+    r"shall\s+come\s+into\s+force",
+    r"shall\s+come\s+into\s+effect",
+    r"shall\s+be\s+available\s+on\s+(the\s+)?(sebi\s+)?website",
+    r"this\s+circular\s+(is|shall)\s+(be\s+)?issued",
+    r"in\s+exercise\s+of\s+the\s+powers\s+conferred",
+    r"may\s+be\s+addressed\s+to",
+    r"is\s+available\s+(at|on)\s+www\.sebi\.gov\.in",
+    r"under\s+the\s+link\s+.?legal",
+]
+
 _SIGNAL_RE = re.compile("|".join(f"(?:{p})" for p in SIGNAL_PATTERNS), re.IGNORECASE)
+_BOILERPLATE_RE = re.compile("|".join(f"(?:{p})" for p in BOILERPLATE_PATTERNS), re.IGNORECASE)
 _SENT_BOUNDARY = re.compile(r"(?<=[.;:])\s+|\n+")
 
 
@@ -101,19 +123,27 @@ def _sentence_around(text: str, start: int, end: int) -> str:
 
 def sweep_signals(document_text: str) -> list[Signal]:
     """Find every obligation-signal occurrence, de-duplicating overlapping
-    matches so the longest signal at a position wins."""
+    matches so the longest signal at a position wins.
+
+    Administrative boilerplate ("shall come into force", "is available at
+    www.sebi.gov.in", ...) is excluded: it carries a duty word but imposes no
+    obligation, so it must not appear on a reviewer's checklist.
+    """
     signals: list[Signal] = []
     last_end = -1
     for m in _SIGNAL_RE.finditer(document_text):
         if m.start() < last_end:  # overlaps previous longer match
             continue
         last_end = m.end()
+        sentence = _sentence_around(document_text, m.start(), m.end())
+        if _BOILERPLATE_RE.search(sentence):
+            continue
         signals.append(
             Signal(
                 phrase=m.group(0),
                 char_start=m.start(),
                 char_end=m.end(),
-                sentence=_sentence_around(document_text, m.start(), m.end()),
+                sentence=sentence,
             )
         )
     return signals

@@ -41,22 +41,31 @@ export default function Documents() {
         if (prog.status === "done") {
           setPolling(false);
           clearInterval(id);
-          // Pull the real coverage ratio so the summary shows a % instead of "n/a".
-          let coverage: number | null = null;
+          // The review checklist: how many duty sentences nobody accounted for.
+          // Deliberately not a percentage — see kernel/coverage.py.
+          let toReview: number | null = null;
           try {
             const cov = await api.coverage(docIdRef.current!);
-            coverage = cov.coverage_ratio;
+            toReview = cov.unaccounted;
           } catch {
-            /* coverage optional — leave null if unavailable */
+            /* checklist optional — leave null if unavailable */
           }
-          setFlowResult({ obligations: prog.obligations_found, coverage, actionItems: prog.action_items_generated ?? 0 });
+          setFlowResult({
+            obligations: prog.obligations_found,
+            clauses: prog.total_clauses,
+            toReview,
+            actionItems: prog.action_items_generated ?? 0,
+          });
           qc.invalidateQueries({ queryKey: ["documents"] });
+          qc.invalidateQueries({ queryKey: ["obligations"] });
           qc.invalidateQueries({ queryKey: ["change-requests"] });
           qc.invalidateQueries({ queryKey: ["dashboard"] });
         } else if (prog.status === "error") {
+          // Stop polling but KEEP the panel and the message on screen. Calling
+          // ingest.reset() here used to clear isError, which collapsed the flow
+          // back to the dropzone and made the failure disappear silently.
           setPolling(false);
           clearInterval(id);
-          ingest.reset();
         }
       } catch {
         // ignore transient fetch errors during polling
@@ -68,7 +77,8 @@ export default function Documents() {
   const start = () => { setFlowResult(null); setProgress(null); ingest.mutate(); };
   const reset = () => { setFile(null); setFlowResult(null); setProgress(null); setPolling(false); ingest.reset(); };
 
-  const showFlow = ingest.isPending || polling || flowResult !== null || ingest.isError;
+  const failed = progress?.status === "error";
+  const showFlow = ingest.isPending || polling || flowResult !== null || ingest.isError || failed;
 
   return (
     <div>
@@ -97,11 +107,20 @@ export default function Documents() {
         <div className="mb-8">
           <AgentFlow
             running={ingest.isPending || polling}
-            result={flowResult}
-            error={ingest.isError ? friendlyError(ingest.error) : progress?.error ?? undefined}
+            result={failed ? null : flowResult}
+            // Only a genuinely failed run is an error. A run that finished with
+            // some clauses skipped still carries progress.error for detail, but
+            // it has real results and must not be rendered as a failure.
+            error={
+              ingest.isError
+                ? friendlyError(ingest.error)
+                : failed
+                ? progress?.error ?? "Analysis failed."
+                : undefined
+            }
             progress={progress}
           />
-          {(flowResult || ingest.isError || progress?.status === "error") && (
+          {(flowResult || ingest.isError || failed) && (
             <div className="mt-4 flex gap-3">
               {flowResult && (
                 <TButton onClick={() => navigate("/app/approvals")}>Review obligations <ArrowRight className="h-4 w-4" /></TButton>
@@ -187,7 +206,7 @@ function friendlyError(err: unknown): string {
 
 function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }) {
   const cov = doc.coverage;
-  const ratio = cov ? Math.round(cov.coverage_ratio * 100) : null;
+  const failed = doc.status === "error";
   return (
     <Card>
       <div className="flex items-start justify-between">
@@ -201,24 +220,32 @@ function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }
         <span className="rounded-md bg-ink-50 px-2 py-1 font-mono">ref {shortHash(doc.content_hash)}</span>
         <span className="rounded-md bg-ink-50 px-2 py-1">{doc.page_count} pages</span>
       </div>
-      {doc.obligation_count === 0 && (
+      {failed ? (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
+          The last analysis of this document failed. Upload it again to retry.
+        </div>
+      ) : doc.obligation_count === 0 ? (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
           No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
         </div>
-      )}
+      ) : null}
+      {/* Review checklist, not a score. We show how many duty sentences still
+          need a human read rather than a percentage that looked like accuracy. */}
       {cov && doc.obligation_count > 0 && (
         <div className="mt-4">
-          <div className="mb-1 flex items-center justify-between text-xs">
-            <span className="label">Coverage</span>
-            <span className={cn("font-semibold", cov.unaccounted === 0 ? "text-ok" : "text-warn")}>{ratio}%</span>
+          <div className="flex items-center justify-between text-xs">
+            <span className="label">Review checklist</span>
+            <span className={cov.unaccounted === 0 ? "font-semibold text-ok" : "font-semibold text-warn"}>
+              {cov.unaccounted === 0
+                ? "nothing left to review"
+                : `${cov.unaccounted} sentence${cov.unaccounted !== 1 ? "s" : ""} to review`}
+            </span>
           </div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-ink-100">
-            <div className="bg-ok" style={{ width: `${(cov.extracted / (cov.signals_total || 1)) * 100}%` }} />
-            <div className="bg-brand-300" style={{ width: `${(cov.not_applicable / (cov.signals_total || 1)) * 100}%` }} />
-            <div className="bg-bad" style={{ width: `${(cov.unaccounted / (cov.signals_total || 1)) * 100}%` }} />
+          <div className="mt-1 text-[11px] text-ink-400">
+            {cov.extracted} of {cov.signals_total} duty sentences accounted for by a captured clause
           </div>
           <button className="btn-ghost mt-3 w-full" onClick={onCoverage}>
-            <ShieldCheck className="h-4 w-4" /> Coverage details
+            <ShieldCheck className="h-4 w-4" /> Review checklist
           </button>
         </div>
       )}
@@ -235,23 +262,25 @@ function CoverageDrawer({ documentId, onClose }: { documentId: string; onClose: 
         className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink-900">Coverage details</h2>
+          <h2 className="text-lg font-semibold text-ink-900">Review checklist</h2>
           <button className="btn-ghost" onClick={onClose}>Close</button>
         </div>
         {isLoading || !data ? <Spinner /> : (
           <>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <MiniStat label="Captured" value={data.extracted} tone="text-ok" />
-              <MiniStat label="Not applicable" value={data.not_applicable} tone="text-brand-600" />
-              <MiniStat label="Unaccounted" value={data.unaccounted} tone={data.unaccounted ? "text-bad" : "text-ink-500"} />
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <MiniStat label="Accounted for" value={data.extracted} tone="text-ok" />
+              <MiniStat label="To review" value={data.unaccounted} tone={data.unaccounted ? "text-bad" : "text-ink-500"} />
             </div>
             <p className="mt-4 text-sm text-ink-500">
-              We check every duty-signalling phrase in the circular ("shall", "must", "required to"…) and account for each one.
-              {data.is_complete ? " Everything is accounted for." : " The items below still need a look."}
+              We find every duty-signalling phrase in the circular ("shall", "must", "required to"…) and check that the
+              clause it sits in produced an obligation. Administrative boilerplate is excluded.
+              {data.is_complete
+                ? " Every duty sentence is accounted for."
+                : " The sentences below were not captured — read them and decide."}
             </p>
             <h3 className="mt-6 mb-2 text-sm font-semibold text-ink-800">Needs review ({data.unaccounted_signals.length})</h3>
             {data.unaccounted_signals.length === 0 ? (
-              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">Nothing left. Full coverage.</div>
+              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">Nothing left to review.</div>
             ) : (
               <ul className="space-y-2">
                 {data.unaccounted_signals.map((s, i) => (

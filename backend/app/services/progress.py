@@ -13,12 +13,15 @@ class IngestionProgress:
     total_clauses: int = 0
     processed_clauses: int = 0
     obligations_found: int = 0
+    failed_clauses: int = 0
     action_items_generated: int = 0
     error: str | None = None
 
     @property
     def percent(self) -> int:
         if self.status == "done":
+            return 100
+        if self.status == "error":
             return 100
         if self.status == "parsing":
             return 5
@@ -41,6 +44,7 @@ class IngestionProgress:
             "total_clauses": self.total_clauses,
             "processed_clauses": self.processed_clauses,
             "obligations_found": self.obligations_found,
+            "failed_clauses": self.failed_clauses,
             "action_items_generated": self.action_items_generated,
             "error": self.error,
         }

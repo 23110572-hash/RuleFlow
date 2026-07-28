@@ -156,17 +156,32 @@ def run_extraction_pipeline_with_progress(
     thr = threshold if threshold is not None else settings.citation_fidelity_threshold
 
     all_obligations: list[dict] = []
+    failed = 0
+    last_error = ""
 
-    # Process clauses one by one with progress callbacks
+    # Process clauses one by one with progress callbacks. A single flaky clause
+    # must not kill a 200-clause circular, so failures are counted rather than
+    # raised — but the count is returned so the caller can tell "this document
+    # contains no obligations" apart from "every LLM call failed".
     for i, clause in enumerate(targets):
         try:
             obs = extract_from_clause(document_text, clause, source_hash, thr)
             all_obligations.extend(o.to_dict() for o in obs)
         except Exception as exc:
-            log.warning("clause_extraction_failed", clause=clause.clause_path, error=str(exc))
+            failed += 1
+            last_error = str(exc)
+            log.warning("clause_extraction_failed", clause=clause.clause_path, error=last_error)
 
         if on_clause_done:
-            on_clause_done(i + 1, len(targets), len(all_obligations))
+            on_clause_done(i + 1, len(targets), len(all_obligations), failed)
+
+    # Every clause failed: this is a provider/config failure, not an empty
+    # document. Surface it so the ingest is recorded as an error instead of a
+    # clean run with zero obligations.
+    if targets and failed >= len(targets):
+        raise RuntimeError(
+            f"Extraction failed on all {failed} clause(s). Last error: {last_error}"
+        )
 
     # Enrichment pass
     if enrich_applicability:
@@ -180,7 +195,7 @@ def run_extraction_pipeline_with_progress(
             except Exception as exc:
                 log.warning("applicability_failed", error=str(exc))
 
-    result = ExtractionResult()
+    result = ExtractionResult(clauses_failed=failed, last_error=last_error)
     for od in all_obligations:
         result.obligations.append(
             ProposedObligation(

@@ -11,7 +11,7 @@ Ingests a SEBI document into the CANONICAL layer:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import threading
 
@@ -75,14 +75,68 @@ def _persist_extraction(
     return obligations
 
 
+def _supersede_previous_extraction(db: Session, document: Document) -> int:
+    """Retire the results of an earlier analysis of this same document.
+
+    Obligations are marked ``superseded`` (and closed in valid-time) rather than
+    deleted: Controls, Gaps, Interpretations and Findings hold loose references
+    to obligation ids, and every scope query already filters on
+    ``verified|approved|flagged``, so superseded rows drop out of the live
+    register while remaining auditable. Coverage reports are pure derived data
+    and are replaced outright.
+    """
+    previous = db.execute(
+        select(Obligation).where(Obligation.source_document_id == document.id)
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    retired = 0
+    for ob in previous:
+        if ob.status == "superseded":
+            continue
+        ob.status = "superseded"
+        if ob.valid_to is None:
+            ob.valid_to = now
+        retired += 1
+
+    for report in db.execute(
+        select(CoverageReport).where(CoverageReport.document_id == document.id)
+    ).scalars().all():
+        db.delete(report)
+
+    db.flush()
+    return retired
+
+
 def _persist_coverage(
     db: Session, document: Document, parsed: ParsedDocument, obligations: list[Obligation]
 ) -> CoverageReport:
-    spans = [
-        (o.citation["char_start"], o.citation["char_end"])
-        for o in obligations
-        if o.status == "verified" and o.citation.get("char_start") is not None
-    ]
+    """Build the review checklist: which duty sentences did nobody account for?
+
+    A signal counts as accounted for when the CLAUSE it lives in produced an
+    obligation — not merely when it falls inside the model's short verbatim
+    quote. A clause containing three "shall"s that yielded one obligation was
+    genuinely read, so flagging the other two as missed was wrong and was the
+    main reason a correct run reported ~45%.
+
+    ``flagged`` obligations count too: a low citation-fidelity score means the
+    quote needs a human eye, not that the clause went unread.
+    """
+    clause_span_by_path = {
+        c.clause_path: (c.char_start, c.char_end)
+        for c in parsed.clauses
+        if c.char_end > c.char_start
+    }
+
+    spans: list[tuple[int, int]] = []
+    for o in obligations:
+        if o.status == "superseded":
+            continue
+        clause_span = clause_span_by_path.get(o.clause_path)
+        if clause_span:
+            spans.append(clause_span)
+        elif (o.citation or {}).get("char_start") is not None:
+            spans.append((o.citation["char_start"], o.citation["char_end"]))
+
     cert = build_coverage_certificate(parsed.text, spans, document_id=document.id)
     report = CoverageReport(
         document_id=document.id,
@@ -215,23 +269,37 @@ def ingest_pdf_async(
     """
     chash = hashlib.sha256(data).hexdigest()
 
-    # Check for existing document with same content
+    # EVERY upload is analysed again — we never serve a cached result. Uploading
+    # a circular must always look and behave like a fresh analysis.
+    #
+    # When the same bytes were ingested before we reuse that Document row (so
+    # the register does not fill up with duplicate cards) and re-run the whole
+    # pipeline into it. The previous extraction is superseded, not deleted, so
+    # Controls/Gaps that already reference those obligation ids stay resolvable.
     existing = find_by_hash(db, chash)
     if existing:
-        return existing, False
-
-    document = Document(
-        circular_number=circular_number,
-        content_hash=chash,
-        title=title,
-        issue_date=issue_date,
-        category=category,
-        source_url=source_url,
-        is_public=is_public,
-        page_count=0,
-        status="parsing",
-    )
-    db.add(document)
+        document = existing
+        document.title = title or document.title
+        document.circular_number = circular_number or document.circular_number
+        document.category = category or document.category
+        document.source_url = source_url or document.source_url
+        if issue_date:
+            document.issue_date = issue_date
+        document.page_count = 0
+        document.status = "parsing"
+    else:
+        document = Document(
+            circular_number=circular_number,
+            content_hash=chash,
+            title=title,
+            issue_date=issue_date,
+            category=category,
+            source_url=source_url,
+            is_public=is_public,
+            page_count=0,
+            status="parsing",
+        )
+        db.add(document)
     db.commit()
     # id/recorded_at are Python-side defaults populated on flush, so no refresh
     # round-trip is needed to read document.id below.
@@ -249,6 +317,8 @@ def ingest_pdf_async(
         daemon=True,
     )
     thread.start()
+    # Always True: a run was started, so the caller must show the live analysis
+    # flow rather than a cached summary.
     return document, True
 
 
@@ -273,6 +343,13 @@ def _background_ingest(
         document.page_count = parsed.page_count
         db.commit()
 
+        if not parsed.clauses:
+            raise ValueError(
+                "The document was read but no clauses or paragraphs could be "
+                "identified in it. Please check that this is a SEBI circular or "
+                "master circular."
+            )
+
         if prog:
             prog.status = "extracting"
             prog.total_clauses = len(parsed.clauses)
@@ -285,13 +362,19 @@ def _background_ingest(
             document_category=category,
             max_clauses=max_clauses,
             enrich_applicability=True,
-            on_clause_done=lambda done, total, obs: _update_progress(document_id, done, total, obs),
+            on_clause_done=lambda done, total, obs, failed: _update_progress(
+                document_id, done, total, obs, failed
+            ),
         )
 
         if prog:
             prog.status = "enriching"
+            prog.failed_clauses = extraction.clauses_failed
 
-        # 3. Persist results
+        # 3. Persist results. This upload replaces any earlier analysis of the
+        #    same document — we only reach here once extraction actually
+        #    succeeded, so the previous register is never dropped for nothing.
+        _supersede_previous_extraction(db, document)
         obligations = _persist_extraction(db, document, parsed, extraction)
 
         if prog:
@@ -309,6 +392,7 @@ def _background_ingest(
                 "content_hash": document.content_hash,
                 "obligations": len(obligations),
                 "flagged": extraction.flagged,
+                "clauses_failed": extraction.clauses_failed,
             },
             after_hash=document.content_hash,
         )
@@ -317,6 +401,12 @@ def _background_ingest(
         if prog:
             prog.status = "done"
             prog.obligations_found = len(obligations)
+            prog.failed_clauses = extraction.clauses_failed
+            if extraction.clauses_failed:
+                prog.error = (
+                    f"{extraction.clauses_failed} of {extraction.clauses_processed} "
+                    f"clauses could not be analysed. Last error: {extraction.last_error[:200]}"
+                )
 
         # Auto-trigger change detection (diff + impact) if a prior version exists.
         try:
@@ -331,8 +421,12 @@ def _background_ingest(
         import traceback
         traceback.print_exc()
         try:
+            db.rollback()
             document = db.get(Document, document_id)
             if document:
+                # A failed analysis is recorded as an error, never as a clean
+                # "ingested" run with zero obligations. Any earlier successful
+                # extraction of this document is left untouched.
                 document.status = "error"
                 db.commit()
         except Exception:
@@ -340,14 +434,36 @@ def _background_ingest(
         prog = progress.get(document_id)
         if prog:
             prog.status = "error"
-            prog.error = str(e)
+            prog.error = _friendly_error(e)
     finally:
         db.close()
 
 
-def _update_progress(document_id: str, done: int, total: int, obs_count: int) -> None:
+def _friendly_error(exc: Exception) -> str:
+    """Turn provider/parser failures into something a compliance officer can act on."""
+    msg = str(exc)
+    low = msg.lower()
+    if "402" in msg or "more credits" in low or "insufficient" in low:
+        return (
+            "The AI provider rejected the request for billing reasons (no credits "
+            "or the request exceeded the key's limit). Please top up or update the "
+            "API key, then upload again."
+        )
+    if "429" in msg or "rate limit" in low:
+        return "The AI provider is rate limiting this key. Please wait a moment and upload again."
+    if "401" in msg or "invalid api key" in low or "not configured" in low:
+        return "The AI provider rejected the API key. Please check the key configuration."
+    if "timeout" in low or "timed out" in low:
+        return "The AI provider timed out. Please upload again."
+    return msg[:400]
+
+
+def _update_progress(
+    document_id: str, done: int, total: int, obs_count: int, failed: int = 0
+) -> None:
     prog = progress.get(document_id)
     if prog:
         prog.processed_clauses = done
         prog.total_clauses = total
         prog.obligations_found = obs_count
+        prog.failed_clauses = failed

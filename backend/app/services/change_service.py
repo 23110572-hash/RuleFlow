@@ -43,10 +43,16 @@ def diff_documents(db: Session, from_document_id: str, to_document_id: str) -> d
     """Deterministic canonical diff between two ingested documents; persists
     ChangeEvents. Returns the diff summary + change lists."""
     old = db.execute(
-        select(Obligation).where(Obligation.source_document_id == from_document_id)
+        select(Obligation).where(
+            Obligation.source_document_id == from_document_id,
+            Obligation.status != "superseded",
+        )
     ).scalars().all()
     new = db.execute(
-        select(Obligation).where(Obligation.source_document_id == to_document_id)
+        select(Obligation).where(
+            Obligation.source_document_id == to_document_id,
+            Obligation.status != "superseded",
+        )
     ).scalars().all()
 
     result = diff_obligations([_ob_dict(o) for o in old], [_ob_dict(n) for n in new])
@@ -485,7 +491,10 @@ def detect_impact_on_adopted_obligations(
         return []
 
     new_obs = db.execute(
-        select(Obligation).where(Obligation.source_document_id == new_document_id)
+        select(Obligation).where(
+            Obligation.source_document_id == new_document_id,
+            Obligation.status != "superseded",
+        )
     ).scalars().all()
     if not new_obs:
         return []

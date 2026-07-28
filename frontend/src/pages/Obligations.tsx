@@ -1,33 +1,69 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ListChecks, Quote } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, DocumentT } from "@/lib/api";
 import { Card, EmptyState, ModalityPill, PageHeader, Spinner } from "@/components/ui";
-import { cn } from "@/lib/util";
 
 export default function Obligations() {
   const [q, setQ] = useState("");
   const [modality, setModality] = useState("");
+  const [documentId, setDocumentId] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Populates the "which circular?" filter. Obligations always belong to exactly
+  // one source document, so this is the natural way to slice the register.
+  const { data: docs = [] } = useQuery({ queryKey: ["documents"], queryFn: api.documents });
+
   const { data = [], isLoading } = useQuery({
-    queryKey: ["obligations", q, modality],
-    queryFn: () => api.obligations({ ...(q ? { q } : {}), ...(modality ? { modality } : {}) }),
+    queryKey: ["obligations", q, modality, documentId],
+    queryFn: () =>
+      api.obligations({
+        ...(q ? { q } : {}),
+        ...(modality ? { modality } : {}),
+        ...(documentId ? { document_id: documentId } : {}),
+      }),
   });
+
+  const docLabel = (d: DocumentT) => d.circular_number || d.title || "untitled circular";
 
   return (
     <div>
       <PageHeader title="Obligation Register" subtitle="Canonical, citation-grounded obligations. Click any row to see its exact source clause." />
 
       <div className="mb-4 flex flex-wrap gap-3">
-        <input className="input max-w-md" placeholder="Search statement, clause, text…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="input max-w-[180px]" value={modality} onChange={(e) => setModality(e.target.value)}>
+        <input className="input max-w-md" placeholder="Search statement, clause, circular no.…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select
+          className="input max-w-[280px]"
+          value={documentId}
+          onChange={(e) => setDocumentId(e.target.value)}
+          aria-label="Filter by source document"
+        >
+          <option value="">All documents</option>
+          {docs.map((d) => (
+            <option key={d.id} value={d.id}>
+              {docLabel(d)} ({d.obligation_count})
+            </option>
+          ))}
+        </select>
+        <select className="input max-w-[180px]" value={modality} onChange={(e) => setModality(e.target.value)} aria-label="Filter by modality">
           <option value="">All modalities</option>
           <option value="shall">shall (hard)</option>
           <option value="may">may (discretion)</option>
           <option value="best_judgment">best judgment</option>
         </select>
+        {(q || modality || documentId) && (
+          <button className="btn-ghost" onClick={() => { setQ(""); setModality(""); setDocumentId(""); }}>
+            Clear filters
+          </button>
+        )}
       </div>
+
+      {!isLoading && data.length > 0 && (
+        <p className="mb-3 text-xs text-ink-400">
+          {data.length} obligation{data.length !== 1 ? "s" : ""}
+          {documentId ? " from this circular" : " across all circulars"}
+        </p>
+      )}
 
       {isLoading ? <Spinner /> : data.length === 0 ? (
         <EmptyState title="No obligations found" hint="Ingest a document, or adjust your filters." icon={<ListChecks className="h-8 w-8" />} />
@@ -38,6 +74,7 @@ export default function Obligations() {
               <tr>
                 <th className="px-5 py-3 font-medium">Clause</th>
                 <th className="px-5 py-3 font-medium">Obligation</th>
+                <th className="px-5 py-3 font-medium">Document</th>
                 <th className="px-5 py-3 font-medium">Type</th>
                 <th className="px-5 py-3 font-medium text-right">Source</th>
               </tr>
@@ -47,6 +84,15 @@ export default function Obligations() {
                 <tr key={o.id} className="cursor-pointer hover:bg-ink-50/60" onClick={() => setSelected(o.id)}>
                   <td className="px-5 py-3 font-mono text-xs text-ink-500 whitespace-nowrap">{o.clause_path || "n/a"}</td>
                   <td className="px-5 py-3 text-ink-800">{o.normalized_statement}</td>
+                  <td className="px-5 py-3 text-xs text-ink-500">
+                    <button
+                      className="max-w-[200px] truncate text-left hover:text-brand-600 hover:underline"
+                      title={`Show only obligations from ${o.source_circular_number ?? o.source_document_title ?? "this document"}`}
+                      onClick={(e) => { e.stopPropagation(); setDocumentId(o.source_document_id); }}
+                    >
+                      {o.source_circular_number ?? o.source_document_title ?? "unknown"}
+                    </button>
+                  </td>
                   <td className="px-5 py-3"><ModalityPill modality={o.modality} /></td>
                   <td className="px-5 py-3 text-right">
                     {o.status === "verified" ? (

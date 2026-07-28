@@ -8,6 +8,15 @@ This is the full story of what I built, why I built it this way, and how every l
 
 ---
 
+## Live 
+
+- **App (frontend):** https://rule-flow.vercel.app/
+- **API (backend):** https://ruleflow.onrender.com
+
+> The backend runs on Render's free tier, so the first request after a period of inactivity can take ~30–60s to wake the service. Give it a moment on the initial load.
+
+---
+
 ## Table of Contents
 
 1. [The problem I set out to solve](#1-the-problem-i-set-out-to-solve)
@@ -127,33 +136,33 @@ Each step is a distinct stage in the pipeline, and every one drops a tamper-evid
 ## 6. Architecture — every layer
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────┐
 │  Frontend  — React SPA, the compliance officer's workbench     │
 │  upload · review · approve · watch the live compliance picture │
 └───────────────────────────────┬────────────────────────────────┘
                                  │  typed REST (Bearer auth)
-┌───────────────────────────────▼────────────────────────────────┐
-│  API Layer — FastAPI, thin & stateless                          │
-│  authenticate → resolve the caller's firm → delegate to a service│
-└───────────────────────────────┬────────────────────────────────┘
+┌───────────────────────────────▼───────────────────────────────────┐
+│  API Layer — FastAPI, thin & stateless                            │
+│  authenticate → resolve the caller's firm → delegate to a service │
+└───────────────────────────────┬───────────────────────────────────┘
                                  │
         ┌────────────────────────┼────────────────────────┐
         ▼                        ▼                        ▼
-┌───────────────┐      ┌──────────────────┐      ┌────────────────┐
+┌───────────────┐      ┌───────────────────┐      ┌────────────────┐
 │  Agent Layer  │      │ Verification      │      │   Services     │
 │  (LLM here    │─────►│ Kernel            │─────►│  orchestrate   │
 │   only)       │ props│ (zero LLM, pure   │verify│  kernel+agents │
 │               │      │  deterministic)   │      │  +db per flow  │
-└───────────────┘      └──────────────────┘      └───────┬────────┘
+└───────────────┘      └───────────────────┘      └───────┬────────┘
                                                           │
-                              ┌───────────────────────────┼──────────────┐
+                              ┌───────────────────────────┼───────────────┐
                               ▼                                           ▼
-                   ┌────────────────────┐                    ┌────────────────────────┐
+                   ┌─────────────────────┐                    ┌──────────────────────────┐
                    │  RuleFlow database  │                    │  The FIRM'S OWN database │
                    │  (Neon Postgres):   │                    │  connected by the firm:  │
                    │  canonical + overlay│                    │  evidence read IN,       │
-                   │  bitemporal         │                    │  adopted rules written OUT│
-                   └────────────────────┘                    └────────────────────────┘
+                   │  bitemporal         │                    │  adopted rules           │
+                   └─────────────────────┘                    └──────────────────────────┘
 ```
 
 Let me walk each layer.

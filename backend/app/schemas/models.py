@@ -42,6 +42,11 @@ class CitationOut(BaseModel):
 class ObligationOut(BaseModel):
     id: str
     source_document_id: str
+    #: Which circular this obligation came from. Denormalised onto the row so
+    #: the register can show and filter by source document without an extra
+    #: request per obligation.
+    source_document_title: str | None = None
+    source_circular_number: str | None = None
     clause_path: str
     verbatim_text: str
     normalized_statement: str

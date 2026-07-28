@@ -21,10 +21,12 @@ class DecisionIn(BaseModel):
     decision: str  # approve | reject
 
 
-def _out(o: Obligation) -> ObligationOut:
+def _out(o: Obligation, doc: Document | None = None) -> ObligationOut:
     return ObligationOut(
         id=o.id,
         source_document_id=o.source_document_id,
+        source_document_title=doc.title if doc else None,
+        source_circular_number=doc.circular_number if doc else None,
         clause_path=o.clause_path,
         verbatim_text=o.verbatim_text,
         normalized_statement=o.normalized_statement,
@@ -42,8 +44,12 @@ def _out(o: Obligation) -> ObligationOut:
 
 @router.get("", response_model=list[ObligationOut])
 def list_obligations(
-    q: str | None = Query(None, description="full-text search over statement/clause"),
-    document_id: str | None = None,
+    q: str | None = Query(
+        None, description="full-text search over statement/clause/source circular"
+    ),
+    document_id: str | None = Query(
+        None, description="only obligations extracted from this document"
+    ),
     modality: str | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
@@ -55,17 +61,46 @@ def list_obligations(
         stmt = stmt.where(Obligation.modality == modality)
     if status:
         stmt = stmt.where(Obligation.status == status)
+    else:
+        # Obligations retired by a re-analysis of the same document stay in the
+        # database for audit but must not appear in the live register.
+        stmt = stmt.where(Obligation.status != "superseded")
     if q:
         like = f"%{q.lower()}%"
-        stmt = stmt.where(
-            or_(
-                func_lower(Obligation.normalized_statement).like(like),
-                func_lower(Obligation.verbatim_text).like(like),
-                func_lower(Obligation.clause_path).like(like),
+        # Searching by circular number / document title has to resolve to
+        # document ids first, since those columns live on `documents`.
+        doc_ids = db.execute(
+            select(Document.id).where(
+                or_(
+                    func_lower(Document.title).like(like),
+                    func_lower(Document.circular_number).like(like),
+                )
             )
-        )
+        ).scalars().all()
+        conditions = [
+            func_lower(Obligation.normalized_statement).like(like),
+            func_lower(Obligation.verbatim_text).like(like),
+            func_lower(Obligation.clause_path).like(like),
+        ]
+        if doc_ids:
+            conditions.append(Obligation.source_document_id.in_(list(doc_ids)))
+        stmt = stmt.where(or_(*conditions))
     stmt = stmt.order_by(Obligation.clause_path).limit(1000)
-    return [_out(o) for o in db.execute(stmt).scalars().all()]
+
+    obligations = db.execute(stmt).scalars().all()
+    # One query for every source document referenced, instead of one per row.
+    doc_ids = {o.source_document_id for o in obligations}
+    docs = (
+        {
+            d.id: d
+            for d in db.execute(select(Document).where(Document.id.in_(list(doc_ids))))
+            .scalars()
+            .all()
+        }
+        if doc_ids
+        else {}
+    )
+    return [_out(o, docs.get(o.source_document_id)) for o in obligations]
 
 
 def func_lower(col):
@@ -263,7 +298,7 @@ def get_obligation(obligation_id: str, db: Session = Depends(get_db)):
         if o.id in (c.obligation_ids or [])
     ]
     return {
-        "obligation": _out(o).model_dump(),
+        "obligation": _out(o, doc).model_dump(),
         "document": {
             "id": doc.id if doc else None,
             "title": doc.title if doc else None,
