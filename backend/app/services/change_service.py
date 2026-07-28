@@ -288,67 +288,93 @@ def mark_applied(db: Session, change_request_id: str, actor: str) -> ChangeReque
     return cr
 
 
+def get_connected_database_rules(db: Session, firm_id: str) -> list[dict]:
+    """Fetch live rules, policies, and parameters discovered directly from the
+    broker's connected database tables and mapped controls overlay.
+    """
+    from sqlalchemy import select, create_engine, inspect, text
+    from app.db.models import Control, DataSource, Obligation
+    from app.services.datasource_service import _normalise_uri
+
+    rules: list[dict] = []
+
+    # 1. Fetch controls configured for the firm
+    controls = db.execute(
+        select(Control).where(Control.firm_id == firm_id)
+    ).scalars().all()
+
+    for c in controls:
+        mapped_clause = "n/a"
+        if c.obligation_ids:
+            ob = db.get(Obligation, c.obligation_ids[0])
+            if ob and ob.clause_path:
+                mapped_clause = ob.clause_path
+
+        rules.append({
+            "id": f"ctrl_{c.id}",
+            "rule_name": c.description,
+            "source_system": c.source_system or "Firm Control Record",
+            "parameter_value": c.frequency or "Active rule",
+            "mapped_clause": mapped_clause,
+            "status": c.status or "active",
+        })
+
+    # 2. Inspect connected database tables for live system rule records
+    ds = db.execute(
+        select(DataSource).where(DataSource.firm_id == firm_id)
+    ).scalars().first()
+
+    if ds and ds.connection_uri and ds.status == "connected":
+        try:
+            engine = create_engine(_normalise_uri(ds.kind, ds.connection_uri), pool_pre_ping=True)
+            inspector_obj = inspect(engine)
+            tables = inspector_obj.get_table_names()
+            for tbl in tables[:5]:
+                with engine.connect() as conn:
+                    rows = conn.execute(text(f"SELECT * FROM {tbl} LIMIT 10")).mappings().all()
+                    for idx, row in enumerate(rows):
+                        desc_vals = [str(v) for k, v in row.items() if v and isinstance(v, str) and len(str(v)) > 5]
+                        if desc_vals:
+                            rule_name = desc_vals[0][:100]
+                            param_val = desc_vals[1] if len(desc_vals) > 1 else "Active parameter"
+                            rules.append({
+                                "id": f"db_{tbl}_{idx}",
+                                "rule_name": rule_name,
+                                "source_system": f"{ds.name} ({tbl})",
+                                "parameter_value": str(param_val)[:80],
+                                "mapped_clause": "SEBI Compliance Rule",
+                                "status": "active",
+                            })
+            engine.dispose()
+        except Exception:
+            pass
+
+    return rules
+
+
 def scan_firm_database_for_changes(
     db: Session, firm_id: str, document_id: str | None = None
 ) -> list[dict]:
-    """Real-time live database inspection against SEBI regulation changes.
-
-    1. Connects to the broker's live database table (or active control records)
-       to fetch the laws/rules the firm currently follows.
-    2. Compares against SEBI circular obligations (from document_id or all
-       ingested regulations).
-    3. Generates actionable ChangeRequests asking if the broker wants to
-       modify their system to match the updated SEBI requirement.
+    """Real-time live database inspection comparing the rules in the broker's
+    connected database against SEBI regulations.
     """
     from sqlalchemy import select
     from app.db.models import (
         Control,
         DataSource,
-        Document,
         Firm,
         Obligation,
         ChangeRequest,
     )
-    from sqlalchemy import create_engine, inspect, text
-    from app.services.datasource_service import _normalise_uri
 
     firm = db.get(Firm, firm_id)
     if not firm:
         return []
 
-    # Fetch live rules from connected database table if available
-    live_rules: list[str] = []
-    ds = db.execute(
-        select(DataSource).where(DataSource.firm_id == firm_id)
-    ).scalars().first()
-    if ds and ds.connection_uri:
-        try:
-            engine = create_engine(
-                _normalise_uri(ds.kind, ds.connection_uri), pool_pre_ping=True
-            )
-            inspector_obj = inspect(engine)
-            tables = inspector_obj.get_table_names()
-            if tables:
-                with engine.connect() as conn:
-                    rows = conn.execute(
-                        text(f"SELECT * FROM {tables[0]} LIMIT 20")
-                    ).mappings().all()
-                    for r in rows:
-                        for val in r.values():
-                            if isinstance(val, str) and len(val) > 15:
-                                live_rules.append(val)
-            engine.dispose()
-        except Exception:
-            pass
+    # Fetch live rules from connected DB & controls
+    connected_rules = get_connected_database_rules(db, firm_id)
 
-    # Also include the firm's active Control descriptions as known followed rules
-    controls = db.execute(
-        select(Control).where(Control.firm_id == firm_id)
-    ).scalars().all()
-    followed_desc = [c.description for c in controls if c.description]
-    all_followed_rules = live_rules + followed_desc
-
-    # Fetch SEBI obligations to check against
+    # Fetch SEBI obligations for this firm category
     stmt = select(Obligation).where(
         Obligation.status.in_(["verified", "approved", "flagged"])
     )
@@ -356,7 +382,6 @@ def scan_firm_database_for_changes(
         stmt = stmt.where(Obligation.source_document_id == document_id)
     sebi_obs = db.execute(stmt).scalars().all()
 
-    # Filter SEBI obligations relevant to this firm category
     relevant_obs = []
     for ob in sebi_obs:
         cats = {str(a.get("category", "")).lower() for a in (ob.applies_to or [])}
@@ -368,7 +393,6 @@ def scan_firm_database_for_changes(
         ):
             relevant_obs.append(ob)
 
-    # Check if we already have pending ChangeRequests for this firm
     existing_crs = db.execute(
         select(ChangeRequest).where(
             ChangeRequest.firm_id == firm_id,
@@ -379,15 +403,19 @@ def scan_firm_database_for_changes(
         str((cr.citation or {}).get("obligation_id")) for cr in existing_crs
     }
 
+    controls = db.execute(
+        select(Control).where(Control.firm_id == firm_id)
+    ).scalars().all()
+
     drafts: list[dict] = []
-    for ob in relevant_obs:
+    # Generate action items only for relevant obligations with actionable guidance
+    for ob in relevant_obs[:5]:
         if ob.id in existing_citations:
             continue
 
-        # Try to use Groq LLM to explain the rule modification cleanly
         guidance = (
-            f"SEBI updated requirement [{ob.clause_path}]: {ob.verbatim_text[:180]}... "
-            "Review your database rules and re-attest evidence."
+            f"SEBI requirement [{ob.clause_path}]: {ob.verbatim_text[:160]}... "
+            "Verify your connected database parameters and re-attest control compliance."
         )
         try:
             from app.llm.client import get_llm
@@ -397,7 +425,7 @@ def scan_firm_database_for_changes(
                 prompt = (
                     f"SEBI Circular Clause: {ob.clause_path}\n"
                     f"Requirement: {ob.verbatim_text}\n"
-                    "In 1 clear sentence, explain what changed and ask the broker if they want to modify their database control."
+                    "In 1 clear sentence, explain what operational change the broker must verify in their connected database."
                 )
                 resp = llm.complete_json(
                     "You are a SEBI regulatory compliance advisor.", prompt
@@ -415,7 +443,7 @@ def scan_firm_database_for_changes(
                 "obligation_id": ob.id,
                 "clause_path": ob.clause_path,
                 "document_id": ob.source_document_id,
-                "live_rules_checked": len(all_followed_rules),
+                "live_rules_checked": len(connected_rules),
             },
             status="pending",
         )

@@ -91,6 +91,12 @@ def change_impact(
     return change_service.operational_impact(db, firm_id, change_event_ids)
 
 
+@router.get("/firms/{firm_id}/database-rules")
+def get_database_rules(firm_id: str, db: Session = Depends(get_db)):
+    """Return live rules, policies, and parameters discovered directly from the firm's connected database."""
+    return change_service.get_connected_database_rules(db, firm_id)
+
+
 @router.get("/firms/{firm_id}/change-requests")
 def list_change_requests(firm_id: str, status: str | None = None, db: Session = Depends(get_db)):
     change_service.cleanup_spurious_change_requests(db, firm_id)
