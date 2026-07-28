@@ -117,7 +117,7 @@ export function AgentFlow({
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-5 grid grid-cols-3 gap-3"
+          className="mt-5 grid grid-cols-2 gap-3"
         >
           <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
             <div className="text-2xl font-semibold text-ink-900">{result.clauses}</div>
@@ -127,14 +127,8 @@ export function AgentFlow({
             <div className="text-2xl font-semibold text-ink-900">{result.obligations}</div>
             <div className="text-xs text-ink-400">obligations captured</div>
           </div>
-          <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
-            <div className="text-2xl font-semibold text-ink-900">
-              {result.toReview ?? 0}
-            </div>
-            <div className="text-xs text-ink-400">sentences to review</div>
-          </div>
           {(result.actionItems ?? 0) > 0 && (
-            <div className="col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+            <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
               <div className="flex items-center justify-center gap-2 text-amber-700">
                 <GitPullRequest className="h-5 w-5" />
                 <span className="text-lg font-semibold">{result.actionItems}</span>

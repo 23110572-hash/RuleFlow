@@ -123,11 +123,11 @@ export default function Documents() {
           {(flowResult || ingest.isError || failed) && (
             <div className="mt-4 flex gap-3">
               {flowResult && (
-                <TButton onClick={() => navigate("/app/approvals")}>Review obligations <ArrowRight className="h-4 w-4" /></TButton>
+                <TButton onClick={() => navigate("/app/obligations")}>View obligations <ArrowRight className="h-4 w-4" /></TButton>
               )}
               {flowResult && (flowResult.actionItems ?? 0) > 0 && (
                 <TButton variant="primary" className="bg-amber-600 hover:bg-amber-700" onClick={() => navigate("/app/change-requests")}>
-                  <GitPullRequest className="h-4 w-4" /> Review action items ({flowResult.actionItems})
+                  <GitPullRequest className="h-4 w-4" /> View action items ({flowResult.actionItems})
                 </TButton>
               )}
               <TButton variant="ghost" onClick={reset}>Upload another</TButton>
@@ -141,11 +141,9 @@ export default function Documents() {
         <EmptyState title="No regulations yet" hint="Drop your first SEBI circular above." icon={<FileText className="h-8 w-8" />} />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {docs.map((d) => <DocCard key={d.id} doc={d} onCoverage={() => setSelected(d.id)} />)}
+          {docs.map((d) => <DocCard key={d.id} doc={d} />)}
         </div>
       )}
-
-      {selected && <CoverageDrawer documentId={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -204,8 +202,7 @@ function friendlyError(err: unknown): string {
   return msg;
 }
 
-function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }) {
-  const cov = doc.coverage;
+function DocCard({ doc }: { doc: DocumentT }) {
   const failed = doc.status === "error";
   return (
     <Card>
@@ -214,10 +211,10 @@ function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }
           <div className="text-sm font-semibold text-ink-900">{doc.title}</div>
           <div className="mt-0.5 text-xs text-ink-400">{doc.circular_number ?? "no circular no."} · {doc.category ?? "uncategorized"}</div>
         </div>
-        <span className="pill bg-brand-50 text-brand-700">{doc.obligation_count} obligations</span>
+        <span className="pill bg-brand-50 text-brand-700 font-semibold">{doc.obligation_count} obligations</span>
       </div>
       <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-400">
-        <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 font-medium">Verified Document</span>
+        <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 font-medium">Verified Regulation</span>
         <span className="rounded-md bg-ink-50 px-2 py-1">{doc.page_count} pages</span>
       </div>
       {failed ? (
@@ -229,80 +226,7 @@ function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }
           No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
         </div>
       ) : null}
-      {/* Review checklist, not a score. We show how many duty sentences still
-          need a human read rather than a percentage that looked like accuracy. */}
-      {cov && doc.obligation_count > 0 && (
-        <div className="mt-4">
-          <div className="flex items-center justify-between text-xs">
-            <span className="label">Review checklist</span>
-            <span className={cov.unaccounted === 0 ? "font-semibold text-ok" : "font-semibold text-warn"}>
-              {cov.unaccounted === 0
-                ? "nothing left to review"
-                : `${cov.unaccounted} sentence${cov.unaccounted !== 1 ? "s" : ""} to review`}
-            </span>
-          </div>
-          <div className="mt-1 text-[11px] text-ink-400">
-            {cov.extracted} of {cov.signals_total} duty sentences accounted for by a captured clause
-          </div>
-          <button className="btn-ghost mt-3 w-full" onClick={onCoverage}>
-            <ShieldCheck className="h-4 w-4" /> Review checklist
-          </button>
-        </div>
-      )}
     </Card>
   );
 }
 
-function CoverageDrawer({ documentId, onClose }: { documentId: string; onClose: () => void }) {
-  const { data, isLoading } = useQuery<Coverage>({ queryKey: ["coverage", documentId], queryFn: () => api.coverage(documentId) });
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-ink-900/20" onClick={onClose}>
-      <motion.div
-        initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
-        className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink-900">Review checklist</h2>
-          <button className="btn-ghost" onClick={onClose}>Close</button>
-        </div>
-        {isLoading || !data ? <Spinner /> : (
-          <>
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <MiniStat label="Accounted for" value={data.extracted} tone="text-ok" />
-              <MiniStat label="To review" value={data.unaccounted} tone={data.unaccounted ? "text-bad" : "text-ink-500"} />
-            </div>
-            <p className="mt-4 text-sm text-ink-500">
-              We find every duty-signalling phrase in the circular ("shall", "must", "required to"…) and check that the
-              clause it sits in produced an obligation. Administrative boilerplate is excluded.
-              {data.is_complete
-                ? " Every duty sentence is accounted for."
-                : " The sentences below were not captured: read them and decide."}
-            </p>
-            <h3 className="mt-6 mb-2 text-sm font-semibold text-ink-800">Needs review ({data.unaccounted_signals.length})</h3>
-            {data.unaccounted_signals.length === 0 ? (
-              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">Nothing left to review.</div>
-            ) : (
-              <ul className="space-y-2">
-                {data.unaccounted_signals.map((s, i) => (
-                  <li key={i} className="rounded-xl border border-ink-100 bg-ink-50 px-3 py-2 text-xs text-ink-600">
-                    <span className="mr-2 rounded bg-red-100 px-1.5 py-0.5 font-mono text-[10px] text-red-700">{s.phrase}</span>
-                    {s.sentence}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </motion.div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return (
-    <div className="rounded-xl border border-ink-100 py-3">
-      <div className={`text-2xl font-semibold ${tone}`}>{value}</div>
-      <div className="mt-1 text-[11px] text-ink-400">{label}</div>
-    </div>
-  );
-}
