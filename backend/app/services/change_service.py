@@ -290,11 +290,16 @@ def mark_applied(db: Session, change_request_id: str, actor: str) -> ChangeReque
 
 def get_connected_database_rules(db: Session, firm_id: str) -> list[dict]:
     """Fetch live rules, policies, and parameters discovered directly from the
-    broker's connected database tables and mapped controls overlay.
+    broker's connected database tables and mapped controls overlay using Groq LLM.
     """
+    import json
     from sqlalchemy import select, create_engine, inspect, text
-    from app.db.models import Control, DataSource, Obligation
+    from app.db.models import Control, DataSource, Obligation, Firm
     from app.services.datasource_service import _normalise_uri
+    from app.llm.client import get_llm
+
+    firm = db.get(Firm, firm_id)
+    firm_category = firm.category if firm else "stock_broker"
 
     rules: list[dict] = []
 
@@ -324,30 +329,72 @@ def get_connected_database_rules(db: Session, firm_id: str) -> list[dict]:
         select(DataSource).where(DataSource.firm_id == firm_id)
     ).scalars().first()
 
-    if ds and ds.connection_uri and ds.status == "connected":
+    db_context: dict[str, dict] = {}
+    if ds and ds.connection_uri:
         try:
             engine = create_engine(_normalise_uri(ds.kind, ds.connection_uri), pool_pre_ping=True)
             inspector_obj = inspect(engine)
             tables = inspector_obj.get_table_names()
-            for tbl in tables[:5]:
+            for tbl in tables[:6]:
                 with engine.connect() as conn:
-                    rows = conn.execute(text(f"SELECT * FROM {tbl} LIMIT 10")).mappings().all()
-                    for idx, row in enumerate(rows):
-                        desc_vals = [str(v) for k, v in row.items() if v and isinstance(v, str) and len(str(v)) > 5]
-                        if desc_vals:
-                            rule_name = desc_vals[0][:100]
-                            param_val = desc_vals[1] if len(desc_vals) > 1 else "Active parameter"
-                            rules.append({
-                                "id": f"db_{tbl}_{idx}",
-                                "rule_name": rule_name,
-                                "source_system": f"{ds.name} ({tbl})",
-                                "parameter_value": str(param_val)[:80],
-                                "mapped_clause": "SEBI Compliance Rule",
-                                "status": "active",
-                            })
+                    cols = [c["name"] for c in inspector_obj.get_columns(tbl)[:15]]
+                    rows = conn.execute(text(f"SELECT * FROM {tbl} LIMIT 5")).mappings().all()
+                    db_context[tbl] = {
+                        "columns": cols,
+                        "sample_rows": [dict(r) for r in rows[:3]]
+                    }
             engine.dispose()
         except Exception:
             pass
+
+    # 3. Use Groq LLM to extract/analyze rules from connected DB schema & rows
+    try:
+        llm = get_llm()
+        if llm.enabled:
+            prompt = (
+                f"Broker firm category: {firm_category}\n"
+                f"Connected database context: {json.dumps(db_context, default=str)}\n"
+                f"Configured controls: {[c.description for c in controls]}\n\n"
+                "Analyze the database schema and controls to extract 4 to 8 operational compliance rules, "
+                "policies, and parameters followed by this SEBI intermediary. "
+                "Return JSON with key 'rules' containing a list of objects. "
+                "Each object MUST contain: rule_name, source_system, parameter_value, mapped_clause, status."
+            )
+            resp = llm.complete_json(
+                "You are a SEBI compliance inspection AI that analyzes database rules.",
+                prompt
+            )
+            if resp and isinstance(resp, dict) and "rules" in resp and isinstance(resp["rules"], list):
+                existing_names = {r["rule_name"].lower() for r in rules}
+                for idx, r in enumerate(resp["rules"]):
+                    r_name = str(r.get("rule_name", "")).strip()
+                    if r_name and r_name.lower() not in existing_names:
+                        rules.append({
+                            "id": f"llm_rule_{idx}",
+                            "rule_name": r_name,
+                            "source_system": str(r.get("source_system", ds.name if ds else "Connected System")),
+                            "parameter_value": str(r.get("parameter_value", "Active parameter")),
+                            "mapped_clause": str(r.get("mapped_clause", "SEBI Requirement")),
+                            "status": str(r.get("status", "active")),
+                        })
+    except Exception as e:
+        import structlog
+        structlog.get_logger(__name__).warning("get_connected_database_rules.llm_failed", error=str(e))
+
+    # 4. Guarantee fallback if rules list is still empty: populate from SEBI obligations
+    if not rules:
+        sebi_obs = db.execute(
+            select(Obligation).where(Obligation.status != "superseded").limit(6)
+        ).scalars().all()
+        for idx, ob in enumerate(sebi_obs):
+            rules.append({
+                "id": f"fallback_ob_{idx}",
+                "rule_name": ob.normalized_statement or ob.verbatim_text[:80],
+                "source_system": "SEBI Compliance Register",
+                "parameter_value": ob.threshold or ob.deadline_or_periodicity or "Mandatory requirement",
+                "mapped_clause": ob.clause_path or "SEBI Rule",
+                "status": "active",
+            })
 
     return rules
 
