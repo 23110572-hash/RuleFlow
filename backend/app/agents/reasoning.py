@@ -11,6 +11,7 @@ from app.agents.prompts import (
     CONTROL_DRAFT_SYSTEM,
     CONTROL_EVIDENCE_SYSTEM,
     CROSSREF_SYSTEM,
+    EXPLAIN_OBLIGATION_SYSTEM,
 )
 from app.llm.client import get_llm
 
@@ -118,3 +119,70 @@ def propose_control_for_obligation(obligation: dict) -> dict:
         "owner_role": owner_role,
         "frequency": frequency,
     }
+
+
+def _fallback_obligation_explanation(obligation: dict) -> dict:
+    statement = (
+        obligation.get("normalized_statement")
+        or obligation.get("verbatim_text")
+        or "Regulatory requirement"
+    ).strip()
+    modality = (obligation.get("modality") or "shall").lower()
+    is_mandatory = modality == "shall"
+
+    clause = obligation.get("clause_path") or "specified clause"
+    deadline = obligation.get("deadline_or_periodicity")
+    threshold = obligation.get("threshold")
+
+    actions = [
+        f"Implement procedures to fulfill the requirements stated in Clause {clause}.",
+        "Maintain appropriate evidence, audit trails, and internal documentation.",
+    ]
+    if deadline and deadline.lower() != "n/a":
+        actions.append(f"Adhere to the prescribed periodicity/timeline: {deadline}.")
+    if threshold and threshold.lower() != "n/a":
+        actions.append(f"Monitor and enforce threshold: {threshold}.")
+
+    return {
+        "simple_summary": (
+            f"This {'mandatory requirement' if is_mandatory else 'discretionary guideline'} specifies that: {statement}"
+        ),
+        "key_actions": actions,
+        "who_applies": "Regulated entities subject to SEBI oversight (e.g. Depositories, Stock Brokers, AMCs, or DPs as applicable).",
+        "why_it_matters": "Ensures regulatory compliance, protects market transparency, and minimizes legal and operational risks.",
+    }
+
+
+def explain_obligation(obligation: dict, doc_title: str | None = None) -> dict:
+    """Explain an obligation in plain English using the LLM with deterministic fallback."""
+    llm = get_llm()
+    if not llm.enabled:
+        return _fallback_obligation_explanation(obligation)
+
+    user_prompt = (
+        f"Document Title: {doc_title or 'SEBI Circular'}\n"
+        f"Clause Path: {obligation.get('clause_path') or 'N/A'}\n"
+        f"Modality: {obligation.get('modality') or 'shall'}\n"
+        f"Normalized Statement: {obligation.get('normalized_statement') or ''}\n"
+        f"Verbatim Text: {obligation.get('verbatim_text') or ''}\n"
+        f"Deadline / Periodicity: {obligation.get('deadline_or_periodicity') or 'N/A'}\n"
+        f"Threshold: {obligation.get('threshold') or 'N/A'}"
+    )
+
+    try:
+        payload = llm.complete_json(EXPLAIN_OBLIGATION_SYSTEM, user_prompt)
+        if isinstance(payload, dict) and payload.get("simple_summary"):
+            actions = payload.get("key_actions")
+            if not isinstance(actions, list) or not actions:
+                actions = _fallback_obligation_explanation(obligation)["key_actions"]
+            return {
+                "simple_summary": str(payload.get("simple_summary")),
+                "key_actions": [str(a) for a in actions],
+                "who_applies": str(payload.get("who_applies") or _fallback_obligation_explanation(obligation)["who_applies"]),
+                "why_it_matters": str(payload.get("why_it_matters") or _fallback_obligation_explanation(obligation)["why_it_matters"]),
+            }
+    except Exception:
+        pass
+
+    return _fallback_obligation_explanation(obligation)
+

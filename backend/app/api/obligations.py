@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
 
-from app.agents.reasoning import propose_control_for_obligation
+from app.agents.reasoning import explain_obligation, propose_control_for_obligation
 from app.api.deps import get_current_firm
 from app.db.base import get_db
 from app.db.models import Control, Document, Firm, Obligation, ObligationTest
@@ -309,3 +309,24 @@ def get_obligation(obligation_id: str, db: Session = Depends(get_db)):
         else None,
         "controls": linked,
     }
+
+
+@router.post("/{obligation_id}/explain")
+def explain_obligation_endpoint(obligation_id: str, db: Session = Depends(get_db)):
+    """Explain an obligation in simple plain-English using AI with deterministic fallback."""
+    o = db.get(Obligation, obligation_id)
+    if not o:
+        raise HTTPException(404, "obligation not found")
+    doc = db.get(Document, o.source_document_id)
+    doc_title = (doc.title or doc.circular_number) if doc else None
+
+    obligation_dict = {
+        "clause_path": o.clause_path,
+        "modality": o.modality,
+        "normalized_statement": o.normalized_statement,
+        "verbatim_text": o.verbatim_text,
+        "deadline_or_periodicity": o.deadline_or_periodicity,
+        "threshold": o.threshold,
+    }
+    return explain_obligation(obligation_dict, doc_title=doc_title)
+

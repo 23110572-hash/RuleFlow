@@ -74,6 +74,7 @@ export const api = {
     return request<Obligation[]>(`/obligations${q ? "?" + q : ""}`);
   },
   obligation: (id: string) => request<ObligationDetail>(`/obligations/${id}`),
+  explainObligation: (id: string) => request<ObligationExplanation>(`/obligations/${id}/explain`, { method: "POST" }),
   decideObligation: (id: string, decision: "approve" | "reject") =>
     request<DecisionResult>(`/obligations/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }),
   ingestPdf: async (file: File, meta: { title: string; circular_number?: string; category?: string }) => {
@@ -191,6 +192,12 @@ export type ObligationDetail = {
   document: { id: string | null; title: string | null; circular_number: string | null };
   test: { spec: unknown; last_status: string | null; evaluator: string } | null;
   controls: { id: string; firm_id: string; description: string; frequency: string | null }[];
+};
+export type ObligationExplanation = {
+  simple_summary: string;
+  key_actions: string[];
+  who_applies: string;
+  why_it_matters: string;
 };
 export type TestResult = { obligation_id: string; clause_path: string; modality: string; status: string; detail: string; spec: unknown };
 export type Gap = { id?: string; obligation_id: string; reason: string; severity: string; detail: string };

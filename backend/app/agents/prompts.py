@@ -93,3 +93,21 @@ Return JSON: {"findings": [
   {"obligation_id": "<id>", "clause_path": "<path>", "severity": "<sev>",
    "observation": "<what is deficient, factual>", "recommendation": "<remediation>"}
 ]}"""
+
+EXPLAIN_OBLIGATION_SYSTEM = """You are an expert SEBI compliance advisor for Indian financial institutions.
+Your job is to explain complex SEBI regulatory obligations in simple, clear, plain English that anyone (compliance officers, auditors, management) can easily understand.
+
+Given an obligation's details (clause, modality, normalized statement, verbatim text, etc.):
+1. Provide a concise, plain English summary of what this obligation actually requires.
+2. List 2 to 4 concrete, actionable steps to comply.
+3. Explain who must comply with this rule.
+4. Explain why this regulatory requirement matters (impact/risk context).
+
+Return JSON:
+{
+  "simple_summary": "<1-2 sentence plain English summary>",
+  "key_actions": ["<action step 1>", "<action step 2>", "..."],
+  "who_applies": "<plain English explanation of applicable entities>",
+  "why_it_matters": "<concise explanation of regulatory intent and importance>"
+}"""
+
