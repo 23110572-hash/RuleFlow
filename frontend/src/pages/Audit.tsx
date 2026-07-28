@@ -154,10 +154,6 @@ export default function Audit() {
             className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-4 text-sm text-ink-800 placeholder-ink-400 focus:border-brand-500 focus:outline-none"
           />
         </div>
-        <div className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Tamper-proof record
-        </div>
       </div>
 
       {isLoading ? (
