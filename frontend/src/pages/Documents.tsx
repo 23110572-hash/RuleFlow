@@ -209,7 +209,9 @@ function DocCard({ doc }: { doc: DocumentT }) {
       <div className="flex items-start justify-between">
         <div>
           <div className="text-sm font-semibold text-ink-900">{doc.title}</div>
-          <div className="mt-0.5 text-xs text-ink-400">{doc.circular_number ?? "no circular no."} · {doc.category ?? "uncategorized"}</div>
+          <div className="mt-0.5 text-xs text-ink-400">
+            {doc.circular_number ? `${doc.circular_number} · ` : ""}{doc.category ?? "SEBI Regulation"}
+          </div>
         </div>
         <span className="pill bg-brand-50 text-brand-700 font-semibold">{doc.obligation_count} obligations</span>
       </div>

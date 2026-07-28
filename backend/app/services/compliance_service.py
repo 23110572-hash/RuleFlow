@@ -16,7 +16,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.agents.scoring import score_readiness
-from app.db.models import Control, Document, Evidence, Gap, Obligation, ObligationTest
+from app.db.models import (
+    ChangeRequest,
+    Control,
+    Document,
+    Evidence,
+    Firm,
+    Gap,
+    Obligation,
+    ObligationTest,
+)
 from app.kernel.gaps import GapFinding, classify_gaps, health_score
 from app.kernel.obligation_tests import evaluate_test
 from app.services import audit
@@ -148,26 +157,10 @@ def evaluate_firm(db: Session, firm_id: str, category: str, as_of: datetime | No
 
     findings: list[GapFinding] = classify_gaps(gap_inputs)
 
-    # AI-rated Compliance Readiness (with a transparent computed fallback).
-    status_counts = {"green": 0, "amber": 0, "red": 0, "not_compilable": 0}
-    for r in results:
-        status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
-    sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    for f in findings:
-        sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
-
-    summary = {
-        "obligations_total": len(obligations),
-        "satisfied": status_counts["green"],
-        "at_risk": status_counts["amber"],
-        "failing": status_counts["red"],
-        "attested": status_counts["not_compilable"],
-        "gaps": sev_counts,
-        "firm_category": category,
-    }
-    from app.services import change_service
-    db_rules = change_service.get_connected_database_rules(db, firm_id)
-    readiness = score_readiness(summary, fallback_score=health_score(len(obligations), findings), db_rules=db_rules)
+    # Readiness reflects the rules the firm follows vs the followed rules SEBI
+    # has made outdated — the same real model the dashboard uses — not the
+    # evidence-test pass rate (which is 0 before any evidence is imported).
+    readiness = readiness_for_firm(db, firm_id, category)["readiness"]
 
     return {
         "results": results,
@@ -175,6 +168,101 @@ def evaluate_firm(db: Session, firm_id: str, category: str, as_of: datetime | No
         "readiness": readiness,
         "total": len(obligations),
         "as_of": as_of.isoformat(),
+    }
+
+
+def _followed_rules_safe(db: Session, firm_id: str) -> tuple[list[dict], bool]:
+    """Rules the firm follows, read from its connected database. Never raises —
+    a dashboard must render even if the external database is briefly unreachable."""
+    from app.services import change_service
+
+    try:
+        info = change_service.get_connected_database_rules(db, firm_id)
+        return info.get("rules", []), bool(info.get("connected"))
+    except Exception:
+        return [], False
+
+
+def readiness_for_firm(db: Session, firm_id: str, category: str) -> dict:
+    """The one real compliance picture, shared by the dashboard and the
+    Compliance page.
+
+    Compares the rules the firm actually follows (connected database) and the
+    SEBI obligations it has adopted against the obligations that apply to it, and
+    treats open action items (followed rules a SEBI change has made outdated) as
+    live risk. Everything here is grounded in stored/real data — no fabricated
+    counts, no placeholder scores.
+    """
+    firm = db.get(Firm, firm_id)
+    cat = (firm.category if firm else category) or ""
+
+    followed_rules, connected = _followed_rules_safe(db, firm_id)
+
+    # Obligations the firm has adopted (active controls) = rules it commits to.
+    adopted_ids: set[str] = set()
+    for c in _active_firm_controls(db, firm_id):
+        adopted_ids.update(c.obligation_ids or [])
+
+    # SEBI obligations that apply to this firm's category (grounded, live).
+    grounded = db.execute(
+        select(Obligation).where(Obligation.status.in_(["verified", "approved", "flagged"]))
+    ).scalars().all()
+    relevant = [o for o in grounded if _obligation_applies_to_firm(o, cat)]
+    relevant_ids = {o.id for o in relevant}
+    obligations_addressed = len(adopted_ids & relevant_ids)
+    ob_by_id = {o.id: o for o in grounded}
+
+    # Open action items = followed rules SEBI has made outdated (real risk).
+    pending = db.execute(
+        select(ChangeRequest).where(
+            ChangeRequest.firm_id == firm_id, ChangeRequest.status == "pending"
+        )
+    ).scalars().all()
+    grounded_pending = [cr for cr in pending if (cr.citation or {}).get("followed_rule")]
+
+    def _severity(cr: ChangeRequest) -> str:
+        ob = ob_by_id.get((cr.citation or {}).get("obligation_id"))
+        modality = (ob.modality if ob else "shall").lower()
+        if modality == "shall":
+            return "high"
+        if modality == "best_judgment":
+            return "medium"
+        return "low"
+
+    weight = {"high": 1.0, "medium": 0.6, "low": 0.3}
+    sev_counts = {"high": 0, "medium": 0, "low": 0}
+    open_weighted = 0.0
+    for cr in grounded_pending:
+        s = _severity(cr)
+        sev_counts[s] += 1
+        open_weighted += weight[s]
+
+    readiness = score_readiness(
+        firm_category=cat,
+        rules_followed=len(followed_rules),
+        obligations_in_scope=len(relevant),
+        obligations_addressed=obligations_addressed,
+        open_action_items=len(grounded_pending),
+        open_weighted=open_weighted,
+        followed_rule_names=[str(r.get("rule_name") or "") for r in followed_rules],
+        risk_summaries=[
+            str((cr.citation or {}).get("what_changed") or cr.operational_action_text or "")
+            for cr in grounded_pending
+        ],
+    )
+
+    return {
+        "readiness": readiness,
+        "rules_followed": len(followed_rules),
+        "data_source_connected": connected,
+        "obligations_in_scope": len(relevant),
+        "obligations_addressed": obligations_addressed,
+        "action_items": {
+            "total": len(grounded_pending),
+            "high": sev_counts["high"],
+            "medium": sev_counts["medium"],
+            "low": sev_counts["low"],
+        },
     }
 
 

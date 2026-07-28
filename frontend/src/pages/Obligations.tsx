@@ -162,9 +162,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
   const rawTitle = data?.document.title;
   const isNumericTitle = rawTitle && /^\d+$/.test(rawTitle);
   const cleanDocTitle = isNumericTitle ? "SEBI Regulation Circular" : (rawTitle || "SEBI Regulation");
-  const circularNo = data?.document.circular_number && data.document.circular_number !== "no circular no." 
-    ? data.document.circular_number 
-    : null;
+  const circularNo = data?.document.circular_number?.trim() || null;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-ink-900/40 backdrop-blur-sm transition-opacity" onClick={onClose}>

@@ -148,10 +148,14 @@ export type ImportMapping = { table: string; description_column: string; capture
 export type Readiness = { score: number | null; band: string; rationale: string; method: string };
 export type Dashboard = {
   firm: { id: string; name: string; category: string; tier: string | null };
-  readiness: Readiness; obligations_in_scope: number; canonical_obligations: number;
-  tests: { green: number; amber: number; red: number; not_compilable: number };
-  gaps: { total: number; critical: number; high: number; medium: number; low: number };
-  pending_change_requests: number;
+  readiness: Readiness;
+  data_source_connected: boolean;
+  rules_followed: number;
+  obligations_in_scope: number;
+  obligations_addressed: number;
+  obligations_total: number;
+  documents_total: number;
+  action_items: { total: number; high: number; medium: number; low: number };
   recent_documents: { id: string; title: string; circular_number: string | null; category: string | null; status: string }[];
 };
 export type DocumentT = {

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowUpRight, CheckCircle2, FileText, GitPullRequest, Inbox, ListChecks } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Database, FileText, GitPullRequest, Inbox, ListChecks, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFirm } from "@/lib/firm";
-import { Card, EmptyState, HealthRing, PageHeader, Spinner, StatusPill } from "@/components/ui";
+import { Card, EmptyState, HealthRing, PageHeader, Spinner } from "@/components/ui";
 
 const stagger = { animate: { transition: { staggerChildren: 0.06 } } };
 const rise = {
@@ -24,8 +24,10 @@ export default function Dashboard() {
   if (isLoading) return <Spinner label="Computing live compliance state…" />;
   if (error || !data) return <EmptyState title="Could not load dashboard" hint={String(error)} />;
 
-  const t = data.tests;
-  const totalTests = t.green + t.amber + t.red + t.not_compilable || 1;
+  const ai = data.action_items;
+  const addressedPct = data.obligations_in_scope > 0
+    ? Math.round((data.obligations_addressed / data.obligations_in_scope) * 100)
+    : 0;
 
   const categoryFormatted = (data.firm.category || "firm")
     .replace(/_/g, " ")
@@ -37,6 +39,16 @@ export default function Dashboard() {
         title={`${firm?.name ?? "Firm Workspace"}`}
         subtitle={`${categoryFormatted}${data.firm.tier ? `, ${data.firm.tier}` : ""}. Your live AI compliance picture.`}
       />
+
+      {!data.data_source_connected && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <Database className="h-4 w-4" />
+          <span>
+            Connect your database in <Link to="/app/settings" className="font-semibold underline">Settings</Link> so we can
+            read the rules you follow and score your readiness against them.
+          </span>
+        </div>
+      )}
 
       <motion.div variants={stagger} initial="initial" animate="animate" className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <motion.div variants={rise} className="lg:row-span-2">
@@ -59,60 +71,64 @@ export default function Dashboard() {
         </motion.div>
 
         <motion.div variants={rise}>
-          <MetricCard icon={ListChecks} label="Obligations in scope" value={data.obligations_in_scope}
-            hint={`${data.canonical_obligations} tracked in total`} to="/app/obligations" />
+          <MetricCard icon={ShieldCheck} label="Rules you follow" value={data.rules_followed}
+            hint="Read from your connected database" to="/app/change-requests" />
         </motion.div>
         <motion.div variants={rise}>
-          <MetricCard icon={FileText} label="Regulations" value={data.recent_documents.length}
+          <MetricCard icon={ListChecks} label="Obligations in scope" value={data.obligations_in_scope}
+            hint={`${data.obligations_addressed} addressed · ${data.obligations_total} tracked in total`} to="/app/obligations" />
+        </motion.div>
+        <motion.div variants={rise}>
+          <MetricCard icon={FileText} label="Regulations" value={data.documents_total}
             hint="Circulars analysed" to="/app/documents" />
         </motion.div>
         <motion.div variants={rise}>
-          <MetricCard icon={CheckCircle2} label="Satisfied checks" value={data.tests.green}
-            hint={`${data.tests.red} failing · ${data.tests.amber} at risk`} to="/app/change-requests" accent="#16a34a" />
-        </motion.div>
-        <motion.div variants={rise}>
-          <MetricCard icon={GitPullRequest} label="Action items" value={data.pending_change_requests}
-            hint="Awaiting your approval" to="/app/change-requests"
-            accent={data.pending_change_requests ? "#d97706" : undefined} />
+          <MetricCard icon={GitPullRequest} label="Action items" value={ai.total}
+            hint={ai.total ? "Followed rules needing an update" : "Nothing needs updating"} to="/app/change-requests"
+            accent={ai.total ? "#d97706" : undefined} />
         </motion.div>
       </motion.div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-semibold text-ink-900">Obligation tests</h2>
-            <Link to="/app/change-requests" className="text-sm font-medium text-brand-600 hover:text-brand-700">View all</Link>
+            <h2 className="font-semibold text-ink-900">Compliance risks</h2>
+            <Link to="/app/change-requests" className="text-sm font-medium text-brand-600 hover:text-brand-700">Review</Link>
           </div>
-          <div className="mb-3 flex h-2.5 overflow-hidden rounded-full bg-ink-100">
-            <div className="bg-ok" style={{ width: `${(t.green / totalTests) * 100}%` }} />
-            <div className="bg-warn" style={{ width: `${(t.amber / totalTests) * 100}%` }} />
-            <div className="bg-bad" style={{ width: `${(t.red / totalTests) * 100}%` }} />
-          </div>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <TileCount label="Satisfied" value={t.green} status="green" />
-            <TileCount label="At risk" value={t.amber} status="amber" />
-            <TileCount label="Failing" value={t.red} status="red" />
-            <TileCount label="Attested" value={t.not_compilable} status="not_compilable" />
-          </div>
+          {ai.total === 0 ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-ok">
+              <CheckCircle2 className="h-5 w-5" /> Every rule you follow matches current SEBI requirements.
+            </div>
+          ) : (
+            <>
+              <p className="mb-3 text-xs text-ink-400">
+                Followed rules a recent SEBI change has made outdated or insufficient.
+              </p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <GapCount label="High" value={ai.high} tone="text-bad" />
+                <GapCount label="Medium" value={ai.medium} tone="text-warn" />
+                <GapCount label="Low" value={ai.low} tone="text-ink-500" />
+              </div>
+            </>
+          )}
         </Card>
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-semibold text-ink-900">Open gaps</h2>
-            <Link to="/app/change-requests" className="text-sm font-medium text-brand-600 hover:text-brand-700">Remediate</Link>
+            <h2 className="font-semibold text-ink-900">Obligation coverage</h2>
+            <Link to="/app/compliance" className="text-sm font-medium text-brand-600 hover:text-brand-700">View</Link>
           </div>
-          {data.gaps.total === 0 ? (
-            <div className="flex items-center gap-2 py-6 text-sm text-ok">
-              <CheckCircle2 className="h-5 w-5" /> No open gaps detected.
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 gap-2 text-center">
-              <GapCount label="Critical" value={data.gaps.critical} tone="text-bad" />
-              <GapCount label="High" value={data.gaps.high} tone="text-orange-600" />
-              <GapCount label="Medium" value={data.gaps.medium} tone="text-warn" />
-              <GapCount label="Low" value={data.gaps.low} tone="text-ink-500" />
-            </div>
-          )}
+          <div className="mb-1 flex items-center justify-between text-sm">
+            <span className="text-ink-600">Applicable obligations you address</span>
+            <span className="font-semibold text-ink-900">{addressedPct}%</span>
+          </div>
+          <div className="mb-3 flex h-2.5 overflow-hidden rounded-full bg-ink-100">
+            <div className="bg-ok" style={{ width: `${addressedPct}%` }} />
+          </div>
+          <div className="text-xs text-ink-400">
+            {data.obligations_addressed} of {data.obligations_in_scope} obligations that apply to a{" "}
+            {categoryFormatted} are addressed by a control you have adopted.
+          </div>
         </Card>
       </div>
 
@@ -129,9 +145,11 @@ export default function Dashboard() {
               <li key={d.id} className="flex items-center justify-between py-3">
                 <div>
                   <div className="text-sm font-medium text-ink-800">{d.title}</div>
-                  <div className="text-xs text-ink-400">{d.circular_number ?? "no circular no."} · {d.category ?? "uncategorized"}</div>
+                  <div className="text-xs text-ink-400">
+                    {d.circular_number ? `${d.circular_number} · ` : ""}{d.category ?? "SEBI Regulation"}
+                  </div>
                 </div>
-                <StatusPill status={d.status === "ingested" ? "green" : "amber"} label={d.status === "ingested" ? "Ready" : "Processing"} />
+                <StatusPill status={d.status} />
               </li>
             ))}
           </ul>
@@ -182,20 +200,12 @@ function MetricCard({ icon: Icon, label, value, hint, to, accent }: {
   );
 }
 
-const TILE_TONE: Record<string, string> = {
-  green: "text-green-600",
-  amber: "text-amber-600",
-  red: "text-red-600",
-  not_compilable: "text-ink-500",
-};
-
-function TileCount({ label, value, status }: { label: string; value: number; status: string }) {
-  return (
-    <div className="rounded-xl border border-ink-100 py-4">
-      <div className={`text-3xl font-bold ${TILE_TONE[status] ?? "text-ink-900"}`}>{value}</div>
-      <div className="mt-1 text-sm font-semibold text-ink-600">{label}</div>
-    </div>
-  );
+function StatusPill({ status }: { status: string }) {
+  const ready = status === "ingested";
+  const failed = status === "error";
+  const label = ready ? "Ready" : failed ? "Failed" : "Processing";
+  const tone = ready ? "bg-green-50 text-green-700" : failed ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700";
+  return <span className={`pill ${tone}`}>{label}</span>;
 }
 
 function GapCount({ label, value, tone }: { label: string; value: number; tone: string }) {
