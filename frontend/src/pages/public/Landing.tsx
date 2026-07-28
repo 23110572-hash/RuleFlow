@@ -128,7 +128,7 @@ export default function Landing() {
         </section>
 
         <footer className="mx-auto max-w-6xl px-6 py-10 text-center text-sm text-ink-400">
-          RuleFlow — Agentic Compliance for the Indian securities market, SEBI TechSprint 2026
+          RuleFlow · Intelligent Compliance for the Indian securities market, SEBI TechSprint 2026
         </footer>
       </div>
     </div>

@@ -49,7 +49,7 @@ function humanizeAction(action: string): ActionInfo {
   if (lower.includes("change"))
     return { label: "Action item updated", icon: GitPullRequest, color: "text-orange-600 bg-orange-50" };
   return {
-    label: action.replace(/_/g, " ").replace(/\./g, " — ").replace(/\b\w/g, (l) => l.toUpperCase()),
+    label: action.replace(/_/g, " ").replace(/\./g, " : ").replace(/\b\w/g, (l) => l.toUpperCase()),
     icon: Activity,
     color: "text-ink-600 bg-ink-50",
   };
@@ -86,7 +86,7 @@ function describeEntry(action: string, payload: Record<string, unknown>): string
       const g = num(p.open_gaps);
       const r = p.readiness;
       const readiness = r === null || r === undefined || r === "" ? "" : ` Readiness score is now ${r}/100.`;
-      return `Recalculated compliance — found ${plural(g, "open gap", "open gaps")}.${readiness}`;
+      return `Recalculated compliance and found ${plural(g, "open gap", "open gaps")}.${readiness}`;
     }
     case "change.impact_analyzed":
       return `Reviewed how a regulation change affects the firm and raised ${plural(num(p.change_requests), "action item", "action items")}.`;
@@ -140,7 +140,7 @@ export default function Audit() {
     <div>
       <PageHeader
         title="Activity"
-        subtitle="A complete, time-stamped record of everything that happens in your workspace — uploads, approvals, compliance checks, and updates by your team."
+        subtitle="A complete, time-stamped record of everything that happens in your workspace including uploads, approvals, compliance checks, and updates by your team."
       />
 
       <div className="mb-4 flex items-center justify-between gap-4">

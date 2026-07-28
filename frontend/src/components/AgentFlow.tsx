@@ -129,7 +129,7 @@ export function AgentFlow({
           </div>
           <div className="rounded-xl border border-ink-100 bg-ink-50 p-4 text-center">
             <div className="text-2xl font-semibold text-ink-900">
-              {result.toReview ?? "—"}
+              {result.toReview ?? 0}
             </div>
             <div className="text-xs text-ink-400">sentences to review</div>
           </div>
@@ -138,7 +138,7 @@ export function AgentFlow({
               <div className="flex items-center justify-center gap-2 text-amber-700">
                 <GitPullRequest className="h-5 w-5" />
                 <span className="text-lg font-semibold">{result.actionItems}</span>
-                <span className="text-sm">action item{result.actionItems !== 1 ? "s" : ""} generated — regulation changes detected</span>
+                <span className="text-sm">action item{result.actionItems !== 1 ? "s" : ""} generated (regulation changes detected)</span>
               </div>
             </div>
           )}

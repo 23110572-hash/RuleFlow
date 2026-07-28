@@ -217,7 +217,7 @@ function DocCard({ doc, onCoverage }: { doc: DocumentT; onCoverage: () => void }
         <span className="pill bg-brand-50 text-brand-700">{doc.obligation_count} obligations</span>
       </div>
       <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-400">
-        <span className="rounded-md bg-ink-50 px-2 py-1 font-mono">ref {shortHash(doc.content_hash)}</span>
+        <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 font-medium">Verified Document</span>
         <span className="rounded-md bg-ink-50 px-2 py-1">{doc.page_count} pages</span>
       </div>
       {failed ? (
@@ -276,7 +276,7 @@ function CoverageDrawer({ documentId, onClose }: { documentId: string; onClose: 
               clause it sits in produced an obligation. Administrative boilerplate is excluded.
               {data.is_complete
                 ? " Every duty sentence is accounted for."
-                : " The sentences below were not captured — read them and decide."}
+                : " The sentences below were not captured: read them and decide."}
             </p>
             <h3 className="mt-6 mb-2 text-sm font-semibold text-ink-800">Needs review ({data.unaccounted_signals.length})</h3>
             {data.unaccounted_signals.length === 0 ? (

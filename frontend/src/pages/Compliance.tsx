@@ -75,7 +75,7 @@ export default function Compliance() {
         </h2>
         <span className="text-xs text-ink-400">
           {data.results.length === 0
-            ? "Nothing adopted yet — approve obligations to fill this list."
+            ? "Nothing adopted yet. Approve obligations to fill this list."
             : `${data.results.length} in your compliance record`}
         </span>
       </div>

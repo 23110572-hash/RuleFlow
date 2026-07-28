@@ -47,9 +47,9 @@ export default function Obligations() {
         </select>
         <select className="input max-w-[180px]" value={modality} onChange={(e) => setModality(e.target.value)} aria-label="Filter by modality">
           <option value="">All modalities</option>
-          <option value="shall">shall (hard)</option>
-          <option value="may">may (discretion)</option>
-          <option value="best_judgment">best judgment</option>
+          <option value="shall">Mandatory requirement (shall)</option>
+          <option value="may">Discretionary (may)</option>
+          <option value="best_judgment">Best judgment recommendation</option>
         </select>
         {(q || modality || documentId) && (
           <button className="btn-ghost" onClick={() => { setQ(""); setModality(""); setDocumentId(""); }}>
@@ -68,43 +68,58 @@ export default function Obligations() {
       {isLoading ? <Spinner /> : data.length === 0 ? (
         <EmptyState title="No obligations found" hint="Ingest a document, or adjust your filters." icon={<ListChecks className="h-8 w-8" />} />
       ) : (
-        <Card className="p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-ink-100 text-left text-xs uppercase tracking-wide text-ink-400">
-              <tr>
-                <th className="px-5 py-3 font-medium">Clause</th>
-                <th className="px-5 py-3 font-medium">Obligation</th>
-                <th className="px-5 py-3 font-medium">Document</th>
-                <th className="px-5 py-3 font-medium">Type</th>
-                <th className="px-5 py-3 font-medium text-right">Source</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-50">
-              {data.map((o) => (
-                <tr key={o.id} className="cursor-pointer hover:bg-ink-50/60" onClick={() => setSelected(o.id)}>
-                  <td className="px-5 py-3 font-mono text-xs text-ink-500 whitespace-nowrap">{o.clause_path || "n/a"}</td>
-                  <td className="px-5 py-3 text-ink-800">{o.normalized_statement}</td>
-                  <td className="px-5 py-3 text-xs text-ink-500">
-                    <button
-                      className="max-w-[200px] truncate text-left hover:text-brand-600 hover:underline"
-                      title={`Show only obligations from ${o.source_circular_number ?? o.source_document_title ?? "this document"}`}
-                      onClick={(e) => { e.stopPropagation(); setDocumentId(o.source_document_id); }}
-                    >
-                      {o.source_circular_number ?? o.source_document_title ?? "unknown"}
-                    </button>
-                  </td>
-                  <td className="px-5 py-3"><ModalityPill modality={o.modality} /></td>
-                  <td className="px-5 py-3 text-right">
-                    {o.status === "verified" ? (
-                      <span className="pill bg-green-50 text-green-700"><Check className="h-3.5 w-3.5" /> verified</span>
-                    ) : (
-                      <span className="pill bg-amber-50 text-amber-700">needs review</span>
-                    )}
-                  </td>
+        // overflow-hidden keeps the table inside the rounded card border, and the
+        // inner scroller lets a 5-column table scroll instead of bleeding out of
+        // the box on narrow viewports. table-fixed + colgroup stop the long
+        // obligation text from forcing the Document/Type/Source columns outside.
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[52rem] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[7rem]" />
+                <col />
+                <col className="w-[11rem]" />
+                <col className="w-[7rem]" />
+                <col className="w-[8.5rem]" />
+              </colgroup>
+              <thead className="border-b border-ink-100 text-left text-xs uppercase tracking-wide text-ink-400">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Clause</th>
+                  <th className="px-4 py-3 font-medium">Obligation</th>
+                  <th className="px-4 py-3 font-medium">Document</th>
+                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 text-right font-medium">Source</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-ink-50">
+                {data.map((o) => (
+                  <tr key={o.id} className="cursor-pointer hover:bg-ink-50/60" onClick={() => setSelected(o.id)}>
+                    <td className="truncate px-4 py-3 align-top font-mono text-xs text-ink-500" title={o.clause_path || undefined}>
+                      {o.clause_path || "n/a"}
+                    </td>
+                    <td className="px-4 py-3 align-top text-ink-800">{o.normalized_statement}</td>
+                    <td className="px-4 py-3 align-top text-xs text-ink-500">
+                      <button
+                        className="block w-full truncate text-left hover:text-brand-600 hover:underline"
+                        title={`Show only obligations from ${o.source_circular_number ?? o.source_document_title ?? "this document"}`}
+                        onClick={(e) => { e.stopPropagation(); setDocumentId(o.source_document_id); }}
+                      >
+                        {o.source_circular_number ?? o.source_document_title ?? "unknown"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 align-top"><ModalityPill modality={o.modality} /></td>
+                    <td className="px-4 py-3 text-right align-top">
+                      {o.status === "verified" ? (
+                        <span className="pill whitespace-nowrap bg-green-50 text-green-700"><Check className="h-3.5 w-3.5" /> verified</span>
+                      ) : (
+                        <span className="pill whitespace-nowrap bg-amber-50 text-amber-700">needs review</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -146,8 +161,19 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
             <h3 className="mt-6 mb-2 text-sm font-semibold text-ink-800">Obligation test</h3>
             {data.test ? (
               <div className="rounded-xl border border-ink-100 bg-ink-50 p-3 text-xs">
-                <div className="text-ink-500">Evaluator: <span className="font-medium text-ink-700">{data.test.evaluator}</span></div>
-                <pre className="mt-1 overflow-x-auto text-[11px] text-ink-600">{JSON.stringify(data.test.spec, null, 2)}</pre>
+                <div className="text-ink-600 font-medium capitalize">Evaluator: {data.test.evaluator.replace(/_/g, " ")}</div>
+                {typeof data.test.spec === 'object' && data.test.spec !== null ? (
+                  <div className="mt-2 space-y-1 text-ink-700">
+                    {Object.entries(data.test.spec).map(([k, v]) => (
+                      <div key={k} className="flex justify-between border-b border-ink-100/60 py-1 last:border-0">
+                        <span className="text-ink-500 capitalize">{k.replace(/_/g, " ")}:</span>
+                        <span className="font-medium">{String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-ink-600">{String(data.test.spec)}</div>
+                )}
               </div>
             ) : <div className="text-sm text-ink-400">No test (human-attested).</div>}
 

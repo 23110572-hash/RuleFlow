@@ -46,7 +46,7 @@ function Report({ report }: { report: InspectionReport }) {
         </div>
         <div className="text-right text-sm">
           <div>{report.findings.length} findings · {report.scope_size} in scope</div>
-          <div className="text-ink-300">Report {report.report_id.slice(0, 8)}</div>
+          <div className="text-ink-300">Inspection Report</div>
         </div>
       </div>
 
@@ -63,7 +63,6 @@ function Report({ report }: { report: InspectionReport }) {
                   <span className="font-mono text-xs text-ink-500">{f.clause_path}</span>
                   <SeverityPill severity={f.severity} />
                 </div>
-                <span className="font-mono text-[11px] text-ink-300">ob {f.obligation_id.slice(0, 8)}</span>
               </div>
               <p className="mt-2 text-sm text-ink-800"><span className="font-medium">Observation. </span>{f.observation}</p>
               <p className="mt-1 text-sm text-ink-600"><span className="font-medium">Recommendation. </span>{f.recommendation}</p>

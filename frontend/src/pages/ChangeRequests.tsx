@@ -93,7 +93,7 @@ export default function ChangeRequests() {
     <div>
       <PageHeader
         title="Action items"
-        subtitle="When a newly ingested regulation touches something you've already adopted, RuleFlow raises a cited action item for you to review — nothing writes back to your systems without your approval."
+        subtitle="When a newly ingested regulation touches something you've already adopted, RuleFlow raises a cited action item for you to review. Nothing writes back to your systems without your approval."
         action={
           <TButton
             variant="ghost"
@@ -109,7 +109,7 @@ export default function ChangeRequests() {
       {rescan.isSuccess && rescan.data && (
         <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
           Rescanned {rescan.data.scanned_documents} document
-          {rescan.data.scanned_documents === 1 ? "" : "s"} — created{" "}
+          {rescan.data.scanned_documents === 1 ? "" : "s"}, created{" "}
           <span className="font-semibold">{rescan.data.action_items_created}</span> new action item
           {rescan.data.action_items_created === 1 ? "" : "s"}.
         </div>
@@ -336,9 +336,9 @@ function ImpactCompare({ ev }: { ev: ChangeEventBrief }) {
           {Object.entries(ev.field_changes).map(([field, delta]) => (
             <div key={field} className="flex flex-wrap items-baseline gap-2 text-ink-600">
               <span className="font-mono text-ink-500">{field}:</span>
-              <span className="line-through text-ink-400">{String(delta.old ?? "—")}</span>
+              <span className="line-through text-ink-400">{String(delta.old ?? "None")}</span>
               <ArrowRight className="h-3 w-3 text-ink-300" />
-              <span className="font-medium">{String(delta.new ?? "—")}</span>
+              <span className="font-medium">{String(delta.new ?? "None")}</span>
             </div>
           ))}
         </div>
