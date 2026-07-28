@@ -119,7 +119,7 @@ export default function ChangeRequests() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <select
-              className="input max-w-[240px]"
+              className="input min-w-[320px] max-w-lg font-medium shadow-sm text-sm"
               value={compareDocId}
               onChange={(e) => setCompareDocId(e.target.value)}
               disabled={rescan.isPending}
