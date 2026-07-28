@@ -978,11 +978,24 @@ def cleanup_spurious_change_requests(db: Session, firm_id: str) -> int:
 
     deleted_count = 0
     for cr in crs:
+        cit = cr.citation or {}
+
+        # Action items are now ONLY "rules you follow vs SEBI obligation"
+        # comparisons, which always carry citation.followed_rule. Any PENDING
+        # request without it is a leftover from the earlier adopted-obligation /
+        # document-diff logic — e.g. the generic "Obligation amended. Review the
+        # mapped control..." items — and is purged so the list shows only real,
+        # grounded action items. Decided items (approved/applied/rejected/
+        # escalated) are kept for the audit record.
+        if cr.status == "pending" and not cit.get("followed_rule"):
+            db.delete(cr)
+            deleted_count += 1
+            continue
+
         if not cr.change_event_id:
-            # Followed-rule action items (rule-you-follow vs SEBI obligation) are
-            # grounded in a real obligation but have no doc-to-doc ChangeEvent.
-            # Keep those; only delete genuinely orphaned requests.
-            cit = cr.citation or {}
+            # Followed-rule action items are grounded in a real obligation but
+            # have no doc-to-doc ChangeEvent. Keep those; only delete genuinely
+            # orphaned requests.
             if cit.get("obligation_id") or cit.get("followed_rule"):
                 continue
             db.delete(cr)
