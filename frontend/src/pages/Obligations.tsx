@@ -249,7 +249,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                 </div>
               </div>
 
-              {/* Explain with AI Section */}
+              {/* Explain Section */}
               <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50/70 via-indigo-50/40 to-purple-50/50 p-4 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -257,7 +257,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                       <Sparkles className="h-4 w-4" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-ink-900">Explain with AI</h3>
+                      <h3 className="text-sm font-bold text-ink-900">Explain</h3>
                       <p className="text-xs text-ink-500">Get a plain-English breakdown of this obligation</p>
                     </div>
                   </div>
@@ -266,7 +266,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                       onClick={handleExplain}
                       disabled={isExplaining}
                       className="btn-ghost text-xs flex items-center gap-1 text-brand-700 hover:bg-brand-100/60"
-                      title="Re-explain with AI"
+                      title="Re-explain"
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${isExplaining ? "animate-spin" : ""}`} />
                       Re-explain
@@ -281,7 +281,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                       className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-brand-700 transition"
                     >
                       <Sparkles className="h-4 w-4" />
-                      Explain in Simple Words
+                      Explain
                     </button>
                     {explainError && (
                       <p className="mt-2 text-xs text-rose-600 flex items-center gap-1">
@@ -345,63 +345,6 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                   </div>
                 )}
               </div>
-
-              {/* Obligation Test */}
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-ink-900 flex items-center gap-1.5">
-                  <ShieldCheck className="h-4 w-4 text-brand-600" /> Automated Compliance Verification
-                </h3>
-                {data.test ? (
-                  <div className="rounded-xl border border-ink-100 bg-ink-50 p-3.5 text-xs">
-                    <div className="text-ink-700 font-medium capitalize flex items-center justify-between">
-                      <span>Evaluator: <span className="font-bold text-ink-900">{formatEvaluator(data.test.evaluator)}</span></span>
-                      {data.test.last_status && (
-                        <span className="pill bg-emerald-50 text-emerald-700">{data.test.last_status}</span>
-                      )}
-                    </div>
-                    {typeof data.test.spec === 'object' && data.test.spec !== null ? (
-                      <div className="mt-2.5 space-y-1 text-ink-700">
-                        {Object.entries(data.test.spec).map(([k, v]) => (
-                          <div key={k} className="flex justify-between border-b border-ink-100/60 py-1 last:border-0">
-                            <span className="text-ink-500 capitalize">{k.replace(/_/g, " ")}:</span>
-                            <span className="font-mono font-medium text-ink-800">{String(v)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-ink-600 font-mono">{String(data.test.spec)}</div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-ink-100 bg-ink-50/50 p-3 text-xs text-ink-500">
-                    No automated test spec (Human Attestation required).
-                  </div>
-                )}
-              </div>
-
-              {/* Firm Controls */}
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-ink-900 flex items-center gap-1.5">
-                  <ListChecks className="h-4 w-4 text-brand-600" /> Firm Controls ({data.controls.length})
-                </h3>
-                {data.controls.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-ink-200 p-3.5 text-xs text-ink-400 text-center">
-                    No active firm controls linked to this obligation yet.
-                  </div>
-                ) : (
-                  <ul className="space-y-2">
-                    {data.controls.map((c) => (
-                      <li key={c.id} className="rounded-xl border border-ink-100 bg-white p-3 text-xs shadow-sm">
-                        <div className="font-medium text-ink-800">{c.description}</div>
-                        <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-400">
-                          <span>Frequency: <span className="font-medium text-ink-600">{c.frequency ?? "ad-hoc"}</span></span>
-                          <span className="pill bg-emerald-50 text-emerald-700">Active</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
             </div>
           )}
         </div>
@@ -417,8 +360,4 @@ function formatAttr(val: string | null, fallback: string): string {
   return val;
 }
 
-function formatEvaluator(ev: string): string {
-  if (ev === "kernel") return "RuleFlow Verification Kernel";
-  return ev.replace(/_/g, " ");
-}
 
