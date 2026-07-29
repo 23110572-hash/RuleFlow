@@ -1,4 +1,4 @@
-# RuleFlow — Turning SEBI Regulation into Operational Action
+# RuleFlow : Turning SEBI Regulation into Operational Action
 
 **Operational agentic compliance for SEBI regulated intermediaries**
 
@@ -22,7 +22,7 @@ Understanding a rule is only the first step. The firm must continue tracking eve
 
 ### The time, consistency, and risk problem
 
-I looked at this and saw three problems that no amount of "work harder" fixes. It's **slow** — a long circular can take days to digest. It's **inconsistent** — two officers reading the same clause reach different conclusions, and there is no way to prove you caught everything. And it's **risky** — when a duty slips through, the result is a regulatory finding, with real financial and reputational cost.
+I looked at this and saw three problems that no amount of "work harder" fixes. It's **slow** — a long circular can take days to digest. It's **inconsistent** — two officers reading the same clause reach different conclusions, and there is no way to prove you caught everything. And it's **risky** when a duty slips through, the result is a regulatory finding, with real financial and reputational cost.
 
 The **time problem** is not only about analyst effort. Every day between SEBI issuing a requirement and the firm updating its controls extends the period in which the firm may be operating with an outdated compliance process. Reducing that delay gives the team more time to review exceptions, collect evidence, and fix gaps before they become findings.
 
@@ -49,7 +49,7 @@ RuleFlow currently works with the **stockbroker** category, real public **SEBI s
 
 ## 2. Our solution
 
-We created **RuleFlow** as a connected regulation-to-action system. It reads regulatory documents clause by clause, proposes structured obligations, verifies every citation against the source text, highlights duty language that still needs review, and carries accepted obligations into the firm's controls, evidence, readiness, and change-management workflows.
+We created **RuleFlow** as a connected regulation to action system. It reads regulatory documents clause by clause, proposes structured obligations, verifies every citation against the source text, highlights duty language that still needs review, and carries accepted obligations into the firm's controls, evidence, readiness, and change management workflows.
 
 Our core design principle is:
 
@@ -86,13 +86,13 @@ Each agent receives a bounded task and returns structured data. The prompts are 
 
 ### 3.2 The verification kernel establishes trust
 
-Our deterministic Python kernel handles every check that can be calculated exactly. It verifies citations, reviews coverage signals, compares obligation versions, compiles evidence tests, classifies compliance gaps, calculates transparent readiness inputs, and builds hash-chain values for the audit history.
+Our deterministic Python kernel handles every check that can be calculated exactly. It verifies citations, reviews coverage signals, compares obligation versions, compiles evidence tests, classifies compliance gaps, calculates transparent readiness inputs, and builds hash chain values for the audit history.
 
 This gives the platform reproducible results for source matching, dates, thresholds, structural differences, test outcomes, and audit integrity.
 
 ### 3.3 Humans own the decisions
 
-Compliance officers see the source quote beside the normalized obligation and can accept or reject the proposal. Change actions can be approved, escalated, rejected, and marked as applied. Judgement-based requirements remain visible for human attestation.
+Compliance officers see the source quote beside the normalized obligation and can accept or reject the proposal. Change actions can be approved, escalated, rejected, and marked as applied. Judgement based requirements remain visible for human attestation.
 
 The system accelerates the work while keeping interpretation, adoption, and remediation decisions accountable.
 
@@ -134,7 +134,7 @@ A user uploads a SEBI PDF. The backend processes it in stages while the frontend
 The ingestion flow:
 
 - extracts document text with PyMuPDF;
-- creates clause-level units with character offsets;
+- creates clause level units with character offsets;
 - preserves source identity through normalized content hashes;
 - processes each clause independently; and
 - stores document status and analysis results for later review.
@@ -156,7 +156,7 @@ A focused quote-correction pass handles grounding failures, and deterministic si
 
 ### Step 4 — Verify citations and review coverage
 
-The Citation Fidelity Gate re-reads the cited character range from the authoritative document. It checks in-order token support and source-hash identity, then records the fidelity result. The default grounding threshold is **0.95**.
+The Citation Fidelity Gate re-reads the cited character range from the authoritative document. It checks in order token support and source hash identity, then records the fidelity result. The default grounding threshold is **0.95**.
 
 The coverage kernel scans the complete document for duty phrases such as `shall`, `must`, `required to`, and `shall not`. It turns those signals into a reviewer checklist showing which regulatory sentences are represented by extracted obligations and which ones still require attention.
 
