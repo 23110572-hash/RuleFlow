@@ -1,4 +1,4 @@
-# RuleFlow — Turning SEBI Regulation into Operational Action
+# RuleFlow - Turning SEBI Regulation into Operational Action
 
 **Operational agentic compliance for SEBI regulated intermediaries**
 
