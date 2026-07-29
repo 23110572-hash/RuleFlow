@@ -1,12 +1,14 @@
 # RuleFlow — Turning SEBI Regulation into Operational Action
 
-**SEBI TechSprint 2026 · Theme 2 — Agentic Compliance**
+**Operational agentic compliance for SEBI regulated intermediaries**
 
-RuleFlow is the compliance platform we created to convert SEBI circulars, master circulars, and amendments into structured obligations, operational controls, evidence checks, change actions, and an auditable decision trail.
+[**Open the live RuleFlow platform →**](https://rule-flow.vercel.app/)
+
+RuleFlow is a live compliance platform that processes real SEBI circulars, master circulars, notifications, and amendments. It converts regulatory text into structured obligations, verifies those obligations against the original source, connects them with rules and evidence from a real stockbroker database, and carries the result into controls, compliance checks, change actions, and an auditable decision trail.
 
 ## 1. Problem statement
 
-The securities market ecosystem operates under a continuously evolving regulatory framework. SEBI issues circulars, master circulars, notifications, and guidelines on an ongoing basis, each carrying specific obligations for one or more categories of market intermediaries — stockbrokers, depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
+The securities market ecosystem operates under a continuously evolving regulatory framework. SEBI issues circulars, master circulars, notifications, and guidelines on an ongoing basis, each carrying specific obligations for one or more categories of market intermediaries stockbrokers, depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
 
 This creates **two distinct but deeply related compliance challenges**.
 
@@ -43,19 +45,21 @@ flowchart LR
     G --> H["Need for structured, programmable,<br/>and auditable compliance logic"]
 ```
 
-Bridging this gap — transforming regulatory intent into programmable, auditable compliance logic — is the core problem addressed by SEBI TechSprint 2026 Theme 2.
+Bridging this gap transforming regulatory intent into programmable, auditable compliance logic is the core compliance problem RuleFlow solves.
 
 ### Desired outcome
 
-The desired outcome is a technology-based solution that demonstrably reduces the gap between regulatory issuance and operational compliance action, or materially improves the efficiency, accuracy, and auditability of compliance management for securities market intermediaries.
+The desired outcome is a technology based system that measurably reduces the gap between regulatory issuance and operational compliance action while improving the efficiency, accuracy, and auditability of compliance management for securities market intermediaries.
 
-The solution must identify the intermediary category and regulatory corpus used and demonstrate its performance through at least one concrete regulatory scenario.
+RuleFlow identifies the intermediary category and regulatory corpus involved in each analysis and carries the requirement through a complete operational workflow against the firm's actual rules and evidence.
 
-### Our demonstration focus
+### Operational scope
 
-For our primary hackathon flow, we focus on the **stockbroker** intermediary category and SEBI's publicly available **stockbroker circulars and master circulars** as the regulatory corpus. The same data model also represents obligations applicable to depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
+RuleFlow currently operates with the **stockbroker** intermediary category, real publicly available **SEBI stockbroker circulars and master circulars**, and a real connected **stockbroker operational database**.
 
-Our concrete scenario follows a new or amended stockbroker requirement from document upload to clause-level extraction, citation verification, applicability, human adoption, control mapping, firm-database comparison, evidence testing, gap identification, and a cited remediation action.
+The platform parses uploaded SEBI documents, extracts and verifies obligations, reflects the broker database to discover existing rules and evidence, compares regulatory requirements with operational records, and creates cited actions for compliance review. The data model also represents obligations applicable to depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
+
+The complete workflow follows a new or amended stockbroker requirement from document upload to clause-level extraction, citation verification, applicability, human adoption, control mapping, broker database comparison, evidence testing, gap identification, and a cited remediation action.
 
 ## 2. Our solution
 
@@ -463,12 +467,12 @@ These controls create a traceable path from regulatory text to the person, contr
 |---|---|---|---|
 | Extract obligations from a 30–60 page circular | Approximately 16–24 analyst-hours across reading, interpretation, and structuring | Automated clause-level extraction in minutes, followed by focused officer review in under 1 hour | **~95% reduction in first-pass analysis effort** |
 | Compare a new circular or amended version with the previous regulatory position | Approximately 4–8 hours of line-by-line and spreadsheet comparison | Deterministic obligation-level diff produced in seconds | **~99% faster regulatory change comparison** |
-| Process 50 relevant circulars in one year | Approximately 100–150 analyst-days of manual reading and comparison | Automated processing with approximately 6–7 analyst-days of focused review | **100+ analyst-days saved per year** in the modelled scenario |
+| Process 50 relevant circulars in one year | Approximately 100–150 analyst-days of manual reading and comparison | Automated processing with approximately 6–7 analyst-days of focused review | **100+ analyst-days saved per year** at the stated annual workload |
 | Check whether duty language may have been missed | Reviewer-dependent manual re-reading with no consolidated checklist | Document-wide duty-signal scan with every detected signal shown as accounted or requiring review | **A new, explicit coverage-review capability** |
 | Trace a requirement to its operational response | Search across PDFs, spreadsheets, email, controls, and evidence repositories | Direct chain from source quote to obligation, control, evidence, gap, action, and decision | **Faster audit and inspection preparation** |
 | Identify which existing firm rules are affected by a regulatory change | Manual coordination between legal, compliance, operations, and technology teams | Grounded comparison between stored SEBI obligations and rules read from the firm's database | **Earlier, more focused remediation** |
 
-> **Impact model:** These figures are scenario-based hackathon estimates derived from the workflow assumptions below. They communicate the expected operational value of the implemented system and should be validated through a formal pilot on a representative regulatory corpus.
+> **Impact model:** These figures are operational estimates derived from the workflow assumptions below. They communicate the expected value of the current end-to-end platform and can be refined as usage data grows across a larger regulatory corpus.
 
 ### How we derived the headline figures
 
@@ -506,9 +510,9 @@ The reduction in repeated manual work is especially valuable for smaller interme
 
 Machine-actionable obligations, structured changes, grounded citations, and consistent evidence relationships can make regulatory communication easier to interpret, operate, review, and inspect across different types of intermediaries.
 
-## 13. Alignment with SEBI TechSprint 2026 Theme 2
+## 13. Coverage of the SEBI compliance challenge
 
-| Theme 2 need | What we created in RuleFlow |
+| Compliance requirement | How RuleFlow addresses it |
 |---|---|
 | Translate regulatory text | Clause-level extraction into structured obligations |
 | Preserve regulatory rigor | Verbatim quotes, offsets, source hashes, and citation fidelity |
@@ -520,7 +524,7 @@ Machine-actionable obligations, structured changes, grounded citations, and cons
 | Keep decisions accountable | Accept, reject, approve, escalate, apply, and close workflows |
 | Support auditability | Source-linked records and a verifiable hash-chained activity trail |
 
-RuleFlow turns Theme 2 into an end-to-end operating model: **regulation in, grounded obligation out, operational evidence connected, human action recorded.**
+RuleFlow provides an end-to-end operating model: **regulation in, grounded obligation out, operational evidence connected, human action recorded.**
 
 ## 14. Validation in the repository
 
@@ -583,4 +587,4 @@ flowchart LR
 
 Agents give us speed and language understanding. The deterministic kernel gives us reproducibility and traceability. Connected firm data gives us operational context. Human review gives every important decision an accountable owner.
 
-That is the system we built for SEBI TechSprint 2026 Theme 2.
+That is RuleFlow: a live regulation-to-action platform for securities-market compliance.
