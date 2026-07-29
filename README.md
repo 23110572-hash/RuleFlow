@@ -1,4 +1,4 @@
-# RuleFlow - Turning SEBI Regulation into Operational Action
+# RuleFlow — Turning SEBI Regulation into Operational Action
 
 **Operational agentic compliance for SEBI regulated intermediaries**
 
@@ -8,58 +8,42 @@ RuleFlow is a live compliance platform that processes real SEBI circulars, maste
 
 ## 1. Problem statement
 
-The securities market ecosystem operates under a continuously evolving regulatory framework. SEBI issues circulars, master circulars, notifications, and guidelines on an ongoing basis, each carrying specific obligations for one or more categories of market intermediaries stockbrokers, depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
+SEBI regularly publishes circulars, master circulars, notifications, and guidelines. Each new document may introduce an obligation, change an existing requirement, or remove a rule. These changes can affect stockbrokers, depositories, asset management companies, registrar and transfer agents, investment advisers, market infrastructure institutions, or several categories at the same time. Every affected firm must understand the regulatory change and convert it into operational action quickly and correctly. This creates **two main problems**.
 
-This creates **two distinct but deeply related compliance challenges**.
+### Problem 1 — Turning a new SEBI rule into action
 
-### Problem 1 — Dynamic regulatory translation
+When SEBI publishes a new or amended requirement, the compliance team must determine what changed, whether it applies to the firm, which business process or internal control it affects, what action is required, and when that action must be completed. This work still depends heavily on people reading each document, discussing its meaning, and manually updating spreadsheets or internal records. The result can be a slow response, different interpretations of the same clause, missed changes, and delays in updating the controls that govern daily operations.
 
-The first challenge is interpreting a new or amended regulatory requirement, identifying the intermediary categories it affects, mapping it to operational processes, and updating compliance workflows in a timely and consistent manner.
+### Problem 2 — Checking compliance every day
 
-Today, this depends heavily on manual legal interpretation, internal compliance teams, and circular-by-circular tracking. The result is:
+Understanding a rule is only the first step. The firm must continue tracking every applicable obligation, connect it to an internal process or control, collect evidence that the control is operating, identify missing or outdated evidence, remediate gaps before an inspection, and preserve a clear record of every decision. This information is often divided across PDFs, spreadsheets, emails, and different databases, making ongoing compliance management time-consuming and increasing the chance that an obligation, control failure, or evidence gap will be missed. This burden is even greater for smaller intermediaries with limited compliance resources.
 
-- delayed translation of regulatory text into operational action;
-- uneven implementation across affected intermediaries;
-- divergent interpretations of the same requirement; and
-- difficulty identifying exactly which controls must change when a regulation changes.
+### The time, consistency, and risk problem
 
-### Problem 2 — Ongoing compliance management
+I looked at this and saw three problems that no amount of "work harder" fixes. It's **slow** — a long circular can take days to digest. It's **inconsistent** — two officers reading the same clause reach different conclusions, and there is no way to prove you caught everything. And it's **risky** — when a duty slips through, the result is a regulatory finding, with real financial and reputational cost.
 
-The second challenge is managing compliance after an obligation has been identified. Compliance teams must continuously track their existing obligations, connect each obligation to evidence of fulfilment, maintain decision and audit trails, identify compliance gaps, and remediate those gaps before they become regulatory findings.
+The **time problem** is not only about analyst effort. Every day between SEBI issuing a requirement and the firm updating its controls extends the period in which the firm may be operating with an outdated compliance process. Reducing that delay gives the team more time to review exceptions, collect evidence, and fix gaps before they become findings.
 
-This work is operationally intensive, often manual, and prone to gaps — particularly for smaller intermediaries with limited compliance resources. Obligations, internal controls, evidence, interpretations, and remediation actions frequently remain spread across PDFs, spreadsheets, emails, and separate operational databases.
+### Why both problems happen
 
-### The shared root cause
-
-Both challenges have the same underlying cause: **the regulatory framework exists as unstructured, human-readable text, while operational compliance systems require structured, machine-actionable rules.**
+SEBI rules are written as long documents for people to read. A firm's software and database need the same rules in a clear and structured form.
 
 ```mermaid
 flowchart LR
-    A["SEBI circulars, master circulars,<br/>notifications, and guidelines"] --> B["Unstructured, human-readable<br/>regulatory requirements"]
-    B --> C["Problem 1<br/>Dynamic regulatory translation"]
-    B --> D["Problem 2<br/>Ongoing compliance management"]
-    C --> E["Delayed or inconsistent<br/>operational implementation"]
-    D --> F["Evidence gaps, weak audit trails,<br/>and late remediation"]
-    E --> G["Gap between regulatory issuance<br/>and operational compliance action"]
+    A["SEBI publishes<br/>a new or changed rule"] --> B["Long legal document"]
+    B --> C["Problem 1<br/>What changed and what must we do?"]
+    B --> D["Problem 2<br/>Are we following the rule today?"]
+    C --> E["Turn the text into<br/>clear actions"]
+    D --> F["Link rules to controls<br/>and proof"]
+    E --> G["One clear compliance workflow"]
     F --> G
-    G --> H["Need for structured, programmable,<br/>and auditable compliance logic"]
 ```
 
-Bridging this gap transforming regulatory intent into programmable, auditable compliance logic is the core compliance problem RuleFlow solves.
+The main problem is the gap between **what SEBI writes** and **what a firm must do in its daily work**. A useful system must therefore read SEBI documents, identify the obligations inside them, preserve the exact source text, determine which intermediary category each obligation applies to, connect the obligation to the firm's controls and evidence, identify what is missing or must change, and retain a clear history of every decision. Doing this in one connected workflow makes regulatory translation and ongoing compliance faster, more consistent, and easier to audit.
 
-### Desired outcome
+### What RuleFlow works with today
 
-The desired outcome is a technology based system that measurably reduces the gap between regulatory issuance and operational compliance action while improving the efficiency, accuracy, and auditability of compliance management for securities market intermediaries.
-
-RuleFlow identifies the intermediary category and regulatory corpus involved in each analysis and carries the requirement through a complete operational workflow against the firm's actual rules and evidence.
-
-### Operational scope
-
-RuleFlow currently operates with the **stockbroker** intermediary category, real publicly available **SEBI stockbroker circulars and master circulars**, and a real connected **stockbroker operational database**.
-
-The platform parses uploaded SEBI documents, extracts and verifies obligations, reflects the broker database to discover existing rules and evidence, compares regulatory requirements with operational records, and creates cited actions for compliance review. The data model also represents obligations applicable to depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
-
-The complete workflow follows a new or amended stockbroker requirement from document upload to clause-level extraction, citation verification, applicability, human adoption, control mapping, broker database comparison, evidence testing, gap identification, and a cited remediation action.
+RuleFlow currently works with the **stockbroker** category, real public **SEBI stockbroker circulars and master circulars**, and a real connected **stockbroker database** containing business rules and compliance evidence. It reads an uploaded SEBI document, extracts and verifies its obligations, reads the broker database, compares the regulatory requirements with the firm's current rules, checks the available evidence, identifies gaps, and creates clear action items for the compliance team. The same data model can also represent obligations for depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
 
 ## 2. Our solution
 
