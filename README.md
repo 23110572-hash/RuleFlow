@@ -4,6 +4,8 @@
 
 [**Open the live RuleFlow platform →**](https://rule-flow.vercel.app/)
 
+[![RuleFlow live website walkthrough](./live.gif)](https://rule-flow.vercel.app/)
+
 RuleFlow is a live compliance platform that processes real SEBI circulars, master circulars, notifications, and amendments. It converts regulatory text into structured obligations, verifies those obligations against the original source, connects them with rules and evidence from a real stockbroker database, and carries the result into controls, compliance checks, change actions, and an auditable decision trail.
 
 ## 1. Problem statement
