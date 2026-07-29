@@ -1,42 +1,10 @@
-# RuleFlow — Agentic Compliance Platform
+# RuleFlow — Turning SEBI Regulation into Operational Action
 
-**SEBI TechSprint 2026 · Theme 2 — Agentic Compliance: From Regulatory Text to Operational Action**
+**SEBI TechSprint 2026 · Theme 2 — Agentic Compliance**
 
-RuleFlow reads a SEBI circular the way a compliance officer would, turns every duty it finds into a checkable rule anchored to the exact sentence it came from, writes the rules a firm accepts straight into that firm's own database, and then keeps watch — so when SEBI changes something, the firm knows what it means for them before an inspector does.
+RuleFlow is the compliance platform we created to convert SEBI circulars, master circulars, and amendments into structured obligations, operational controls, evidence checks, change actions, and an auditable decision trail.
 
-This is the full story of what I built, why I built it this way, and how every layer works.
-
----
-
-## Live 
-
-- **App (frontend):** https://rule-flow.vercel.app/
-- **API (backend):** https://ruleflow.onrender.com
-
-> The backend runs on Render's free tier, so the first request after a period of inactivity can take ~30–60s to wake the service. Give it a moment on the initial load.
-
----
-
-## Table of Contents
-
-1. [The problem I set out to solve](#1-the-problem-i-set-out-to-solve)
-2. [The one idea everything is built on](#2-the-one-idea-everything-is-built-on)
-3. [What RuleFlow actually does](#3-what-ruleflow-actually-does)
-4. [Business impact](#4-business-impact)
-5. [The journey of a regulation, end to end](#5-the-journey-of-a-regulation-end-to-end)
-6. [Architecture — every layer](#6-architecture--every-layer)
-7. [The data model — two layers, two clocks](#7-the-data-model--two-layers-two-clocks)
-8. [The Agent Layer — where the reading happens](#8-the-agent-layer--where-the-reading-happens)
-9. [The Verification Kernel — where the trust lives](#9-the-verification-kernel--where-the-trust-lives)
-10. [The three features that carry the product](#10-the-three-features-that-carry-the-product)
-11. [Connecting a firm's own database](#11-connecting-a-firms-own-database)
-12. [The guarantees this gives you](#12-the-guarantees-this-gives-you)
-13. [Tech stack](#13-tech-stack)
-14. [Repository layout](#14-repository-layout)
-
----
-
-## 1. The problem I set out to solve
+## 1. Problem statement
 
 Every SEBI-regulated intermediary — a stockbroker, a depository participant, an investment adviser, an AMC — lives under a constant stream of regulatory text. SEBI publishes circulars, master circulars, and amendments continuously, and each one can create a new obligation, tighten an existing one, or quietly retire one.
 
@@ -51,267 +19,501 @@ I looked at this and saw three problems that no amount of "work harder" fixes. I
 
 Theme 2 of SEBI TechSprint 2026 asks for a system that dynamically translates regulatory text into operational action — taking raw regulation and turning it into machine-actionable, auditable compliance workflows, without losing the rigor a regulator expects. That rigor is the whole game, and it's what I designed RuleFlow around from the first line of code.
 
-## 2. The one idea everything is built on
+## 2. Our solution
 
-Here is the decision that shapes the entire system:
+We created **RuleFlow** as a connected regulation-to-action system. It reads regulatory documents clause by clause, proposes structured obligations, verifies every citation against the source text, highlights duty language that still needs review, and carries accepted obligations into the firm's controls, evidence, readiness, and change-management workflows.
 
-> **Agents propose. A deterministic kernel verifies. A human approves.**
-> Nothing enters a firm's compliance record without a real citation into the source document *and* a human sign-off.
+Our core design principle is:
 
-I trust language models to do exactly one kind of work: read messy legal prose and suggest structure. They are genuinely good at that. But they are also confidently wrong in ways that are unacceptable here — they will paraphrase a quote, invent a deadline that isn't written anywhere, or misjudge how serious a clause is. In compliance, a hallucinated rule is worse than a missing one, because it manufactures false confidence.
+> **Agents propose. Deterministic code verifies. Humans decide.**
 
-So I refused to let the model's word be final. I split RuleFlow into two halves that never blur together:
-
-- **The Agent Layer** does the thinking — reading clauses, proposing obligations, judging applicability, drafting findings, scoring readiness. Everything it produces is a *proposal*, and I treat it as unproven until checked.
-- **The Verification Kernel** is plain, deterministic Python with zero LLM calls. It re-reads the exact span of source text the agent claims to be quoting and mathematically checks whether the quote is really there. It computes version diffs with string algorithms. It classifies severity from a fixed table. Give it the same input and it returns the same answer every single time.
-
-When the kernel rejects a proposal, that proposal is flagged for a human — never silently kept, never silently thrown away. And the human compliance officer is the final authority on every obligation, every change, every gap. This is why I can safely run a fast open model over legal text: the model is allowed to be creative, but a claim only survives if the citation holds up word for word.
-
-## 3. What RuleFlow actually does
-
-Three things, end to end:
-
-- **It reads.** Give it a SEBI PDF and it produces a structured obligation register where every obligation is tied to the precise clause and character range it came from — with a fidelity score proving the quote is genuine.
-- **It adopts and remembers.** When an officer approves an obligation, RuleFlow writes that rule into the firm's *own connected database*, so the firm's systems and team hold the exact set of duties they've committed to.
-- **It stays in sync.** When a new circular arrives, RuleFlow diffs it against what the firm has already adopted and tells them, in plain language, which of their live rules just changed — and it continuously tests their real evidence against those rules so gaps surface early.
-
-## 4. Business impact
-
-RuleFlow attacks the most expensive thing in a compliance team's week: turning regulatory text into action by hand. Here is the math on what it saves.
-
-**Time, per circular**
-
-| Task | By hand | With RuleFlow | Saving |
-|---|---|---|---|
-| Read a 30–60 page master circular and extract every obligation | 16–24 hours (2–3 analyst-days) | Automated extraction in minutes, then review | — |
-| Officer review (approve/reject pre-cited obligations) | included above | under 1 hour | — |
-| **Total per circular** | **2–3 days** | **under 1 hour** | **~95%** |
-| Diff a new version against the old to find what changed | half a day to a full day | seconds (deterministic) | **~99%** |
-| Prove every obligation in the document was captured | effectively impossible | 100% of signals accounted for, by name | new capability |
-
-**Effort and coverage**
-
-- One officer reviewing pre-extracted, pre-cited obligations replaces a team reading from scratch — cutting people-hours per circular by **~90%**.
-- Monitoring moves from **periodic** (whenever someone gets to it) to **continuous** — every new circular is checked against the firm's live rules automatically, the moment it is ingested.
-- Completeness moves from an unverifiable hope to a hard number: **100% of obligation signals** in a document are accounted for.
-
-**Over a year**
-
-A firm processing 50 relevant circulars a year goes from **100+ analyst-days** of manual reading and diffing to a few days of focused review — and ends up with a provably complete, continuously monitored, audit-ready compliance record instead of a folder of PDFs. The time saved compounds every quarter; the risk removed — a missed obligation becoming a regulatory finding — is the part that doesn't show up on a clock but matters most.
-
-## 5. The journey of a regulation, end to end
-
-The clearest way to explain RuleFlow is to follow one document through the whole system.
-
-```
-  SEBI PDF
-     │
-     ▼
- [ Parse ]      strip Hindi pages, extract text, segment into a clause tree
-     │
-     ▼
- [ Extract ]    an agent reads each clause and proposes obligations + verbatim quotes
-     │
-     ▼
- [ Verify ]     the kernel re-reads the cited span and scores the quote (≥ 0.95 or it's flagged)
-     │
-     ▼
- [ Cover ]      the kernel sweeps every "shall/must" in the doc to prove nothing was missed
-     │
-     ▼
- Obligation Register  ──►  officer reviews in Approvals
-                                     │
-                          approve ───┼─── reject
-                                     ▼
-                     Control created  +  row written into the FIRM'S OWN database
-                                     │
-                                     ▼
-                     Compliance tests run against the firm's real evidence
-                                     │
-              new circular arrives ──▼──  Action Items: "this change hits a rule you adopted"
+```mermaid
+flowchart LR
+    A["SEBI circulars<br/>master circulars<br/>amendments"] --> B["Parse documents<br/>into clauses"]
+    B --> C["Extract structured<br/>obligations"]
+    C --> D["Verify citations<br/>and review coverage"]
+    D --> E["Canonical obligation<br/>register"]
+    E --> F["Human review<br/>and adoption"]
+    F --> G["Controls, firm rules<br/>and evidence"]
+    G --> H["Tests, gaps<br/>and readiness"]
+    H --> I["Change actions<br/>and audit history"]
 ```
 
-Each step is a distinct stage in the pipeline, and every one drops a tamper-evident entry into the Activity log.
+RuleFlow connects four things that compliance teams usually manage separately:
 
-## 6. Architecture — every layer
+1. **What SEBI wrote** — the authoritative document, clause, quotation, and source identity.
+2. **What the regulation requires** — a structured, reviewable obligation with modality, trigger, deadline, periodicity, threshold, and applicability.
+3. **What the firm does** — its adopted rules, operational controls, connected data, and evidence.
+4. **What happens next** — a human decision, remediation action, compliance result, or recorded change.
 
+## 3. How we are solving it
+
+We divided RuleFlow into three clear responsibility layers.
+
+### 3.1 Agents understand regulatory language
+
+Focused agents handle tasks where language understanding matters. They extract obligations, assess applicability, explain clauses, identify cross-references, draft controls, discover firm rules, analyse change impact, explain readiness, and prepare inspection observations.
+
+Each agent receives a bounded task and returns structured data. The prompts are centralized in the codebase, making the instructions behind each result inspectable.
+
+### 3.2 The verification kernel establishes trust
+
+Our deterministic Python kernel handles every check that can be calculated exactly. It verifies citations, reviews coverage signals, compares obligation versions, compiles evidence tests, classifies compliance gaps, calculates transparent readiness inputs, and builds hash-chain values for the audit history.
+
+This gives the platform reproducible results for source matching, dates, thresholds, structural differences, test outcomes, and audit integrity.
+
+### 3.3 Humans own the decisions
+
+Compliance officers see the source quote beside the normalized obligation and can accept or reject the proposal. Change actions can be approved, escalated, rejected, and marked as applied. Judgement-based requirements remain visible for human attestation.
+
+The system accelerates the work while keeping interpretation, adoption, and remediation decisions accountable.
+
+## 4. End-to-end RuleFlow workflow
+
+```mermaid
+flowchart TB
+    A["Upload SEBI document"] --> B["Extract text with PyMuPDF"]
+    B --> C["Build clause-level source units"]
+    C --> D["Agent proposes structured obligations"]
+    D --> E["Citation Fidelity Gate"]
+    E --> F["Coverage review checklist"]
+    F --> G["Canonical obligation register"]
+    G --> H["Applicability and plain-English explanation"]
+    H --> I{"Compliance officer decision"}
+    I -->|Accept| J["Draft control and adopt obligation"]
+    I -->|Reject| K["Record reviewed decision"]
+    J --> L["Connect firm rules and evidence"]
+    L --> M["Compile and run obligation tests"]
+    M --> N["Classify gaps and calculate readiness"]
+    N --> O["Create cited change actions"]
+    O --> P["Approve, escalate, reject, or apply"]
+    P --> Q["Hash-chained activity history"]
+
+    R["New regulation version"] --> S["Deterministic obligation diff"]
+    S --> O
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  Frontend  — React SPA, the compliance officer's workbench     │
-│  upload · review · approve · watch the live compliance picture │
-└───────────────────────────────┬────────────────────────────────┘
-                                 │  typed REST (Bearer auth)
-┌───────────────────────────────▼───────────────────────────────────┐
-│  API Layer — FastAPI, thin & stateless                            │
-│  authenticate → resolve the caller's firm → delegate to a service │
-└───────────────────────────────┬───────────────────────────────────┘
-                                 │
-        ┌────────────────────────┼────────────────────────┐
-        ▼                        ▼                        ▼
-┌───────────────┐      ┌───────────────────┐      ┌────────────────┐
-│  Agent Layer  │      │ Verification      │      │   Services     │
-│  (LLM here    │─────►│ Kernel            │─────►│  orchestrate   │
-│   only)       │ props│ (zero LLM, pure   │verify│  kernel+agents │
-│               │      │  deterministic)   │      │  +db per flow  │
-└───────────────┘      └───────────────────┘      └───────┬────────┘
-                                                          │
-                              ┌───────────────────────────┼───────────────┐
-                              ▼                                           ▼
-                   ┌─────────────────────┐                    ┌──────────────────────────┐
-                   │  RuleFlow database  │                    │  The FIRM'S OWN database │
-                   │  (Neon Postgres):   │                    │  connected by the firm:  │
-                   │  canonical + overlay│                    │  evidence read IN,       │
-                   │  bitemporal         │                    │  adopted rules           │
-                   └─────────────────────┘                    └──────────────────────────┘
+
+### Step 1 — Establish the firm context
+
+A user registers a firm with its intermediary category and optional tier. This context supports applicability analysis, obligation suggestions, dashboard calculations, and firm-scoped workflows.
+
+RuleFlow can connect to an existing PostgreSQL, MySQL, or SQLite database. It tests the connection, reflects the available schema, and records the tables that can participate in rule discovery, evidence import, and adopted-obligation write-back.
+
+### Step 2 — Ingest and structure a regulation
+
+A user uploads a SEBI PDF. The backend processes it in stages while the frontend displays parsing, extraction, enrichment, coverage, obligation counts, failed-clause counts, and completion progress.
+
+The ingestion flow:
+
+- extracts document text with PyMuPDF;
+- creates clause-level units with character offsets;
+- preserves source identity through normalized content hashes;
+- processes each clause independently; and
+- stores document status and analysis results for later review.
+
+### Step 3 — Extract obligations
+
+The Extraction Agent converts regulatory language into structured proposals containing:
+
+- clause path;
+- verbatim regulatory quotation;
+- normalized obligation statement;
+- modality such as `shall`, `may`, or `best_judgment`;
+- trigger condition;
+- deadline or periodicity;
+- numeric threshold; and
+- citation metadata.
+
+A focused quote-correction pass handles grounding failures, and deterministic similarity logic collapses near-duplicate proposals from the same clause.
+
+### Step 4 — Verify citations and review coverage
+
+The Citation Fidelity Gate re-reads the cited character range from the authoritative document. It checks in-order token support and source-hash identity, then records the fidelity result. The default grounding threshold is **0.95**.
+
+The coverage kernel scans the complete document for duty phrases such as `shall`, `must`, `required to`, and `shall not`. It turns those signals into a reviewer checklist showing which regulatory sentences are represented by extracted obligations and which ones still require attention.
+
+### Step 5 — Build and review the obligation register
+
+Obligations are stored in a searchable canonical register with their source document, clause, quote, modality, structured attributes, applicability, verification state, and lifecycle status.
+
+RuleFlow can produce a plain-English explanation with a summary, key actions, likely applicability, and regulatory importance. Compliance officers then accept or reject the obligation with the complete source context visible.
+
+### Step 6 — Turn accepted obligations into controls
+
+For an accepted obligation, RuleFlow can draft an operational control containing a description, control type, owner role, and frequency. It creates the firm-specific mapping and writes adopted records to a dedicated `ruleflow_adopted_obligations` table in the connected database.
+
+The write-back flow is namespaced and idempotent. Internal decisions and external synchronization outcomes remain visible as separate records, preserving the officer's work throughout the process.
+
+### Step 7 — Connect firm rules and evidence
+
+RuleFlow reflects the connected database and identifies likely rule, policy, control, limit, and threshold data. Every proposed database rule is validated against the reflected source table before it enters the **Rules You Follow** view.
+
+Evidence can be imported from a selected table and linked to controls. RuleFlow retains the capture time, source, content hash, and available numeric metrics so that evidence remains traceable to its operating system.
+
+### Step 8 — Test obligations and classify gaps
+
+Crisp obligations are compiled into inspectable JSON test specifications:
+
+- **Presence** — required evidence exists.
+- **Recency** — the newest evidence is within the permitted age.
+- **Periodicity** — evidence exists for the required cycle.
+- **Deadline** — evidence was captured by the due date.
+- **Threshold** — a recorded metric satisfies the regulatory condition.
+
+The test engine produces green, amber, red, or human-attested outcomes. The gap ledger then classifies issues as missing, stale, weak, or contradictory and derives severity from the obligation modality, failure reason, and test status.
+
+### Step 9 — Measure readiness
+
+The readiness workflow combines grounded operating inputs:
+
+- rules discovered in the firm's database;
+- SEBI obligations applicable to the firm;
+- obligations addressed through mapped controls;
+- evidence-backed test results; and
+- unresolved change actions affecting followed rules.
+
+These inputs produce dashboard metrics and an explainable readiness narrative for compliance teams and management.
+
+### Step 10 — Manage regulatory change
+
+The deterministic diff engine compares obligation sets across document versions. It matches clause paths, detects moved or renumbered clauses through similarity, and records added, amended, removed, and unchanged obligations with field-level differences.
+
+RuleFlow also compares the firm's followed rules with current SEBI obligations. A change action is retained only when it connects a real rule from the firm's data to a real stored obligation. The resulting action includes the regulatory citation, observed mismatch, recommended response, and human decision status.
+
+### Step 11 — Preserve history and accountability
+
+Obligations and evidence include valid-time and recorded-time fields that support point-in-time compliance evaluation.
+
+Major workflow events create audit entries containing the actor, action, payload, previous chain hash, timestamp, and new chain hash:
+
+```text
+chain_hash = SHA256(previous_chain_hash + canonical_payload + timestamp)
 ```
 
-Let me walk each layer.
+The chain can be re-derived to verify the integrity of the recorded activity history, while the frontend presents the events in language that compliance users can understand.
 
-**The frontend** is where a compliance officer actually works. It's a React single-page app — upload a regulation, watch it get extracted live, review and approve obligations, see action items when things change, and read a real-time compliance dashboard. Pages that depend on the firm's own data (Approvals, Action items, Compliance) are locked behind a "connect your database first" gate, because those features are meaningless — and, in the case of approvals, actively wrong — without a place to write to.
+## 5. Product experience we created
 
-**The API layer** is deliberately thin. FastAPI routers authenticate the Bearer token, resolve which firm the caller belongs to, and hand off to a service. No business logic lives in the routes. This keeps the surface area honest and testable.
+The React application gives each workflow a dedicated working surface.
 
-**The Agent Layer** is the *only* part of the system allowed to talk to an LLM. I fenced it off on purpose. If a feature needs language understanding, it goes here; if it needs a guaranteed-correct answer, it does not.
+### Public and onboarding experience
 
-**The Verification Kernel** sits between the agents and the database like a checkpoint. Every agent proposal has to pass through it before it can be persisted as "verified." It is pure deterministic Python — no network, no randomness.
+- product landing page;
+- firm and account registration;
+- authenticated login and session restoration; and
+- optional data-source connection during onboarding.
 
-**The Services layer** is where the flows are assembled: ingestion wires parse → extract → verify → cover; change management wires diff → impact → human decision; compliance wires test → classify → score. Services are the glue that turns individual capabilities into a product.
+### Compliance workspace
 
-**Two databases, and this distinction matters a lot.** RuleFlow has its own Postgres (Neon) for the regulatory knowledge and each firm's overlay. Separately, a firm connects *their* existing database. I read evidence *in* from it, and — this is the part I care about most — when an obligation is approved, I write the adopted rule *out* into it. The firm's compliance duties end up living in the firm's own systems.
+- **Overview** — readiness, rules followed, obligations in scope, addressed obligations, regulations, action items, risks, and recent documents.
+- **Regulations** — PDF upload, multi-stage processing progress, document status, obligation counts, and analysis results.
+- **Obligation Register** — search, filters, source context, modality, verification state, exact quote, and plain-English explanation.
+- **Approvals** — pending, accepted, and rejected obligations with control creation and synchronization feedback.
+- **Action Items & Database Rules** — rules discovered in firm data, circular-scoped comparisons, cited impacts, and governed decisions.
+- **Compliance & Rule Suggestions** — grounded category-relevant obligations grouped by regulation for individual or bulk review.
+- **Activity** — searchable history of uploads, connections, evidence imports, adoption, calculations, and change decisions.
+- **Settings** — firm profile, connection testing, schema visibility, and connected-source status.
 
-## 7. The data model — two layers, two clocks
+The codebase also contains a thematic Inspector workflow. It prepares SEBI-style observations from stored obligations and compliance results, validates every cited obligation, and links findings to the evidence-backed compliance state.
 
-The schema (`backend/app/db/models.py`) is split into two conceptual layers.
+## 6. System architecture
 
-**The canonical regulatory layer** is shared across every firm and deduplicated by document content hash. It is the single authoritative reading of what SEBI's text says:
+```mermaid
+flowchart TB
+    subgraph UI["React + TypeScript Workbench"]
+        U1["Onboarding and authentication"]
+        U2["Regulations and obligations"]
+        U3["Approvals and action items"]
+        U4["Readiness and activity"]
+    end
 
-- `Document` — an ingested circular: content hash, title, category, page count, status.
-- `Obligation` — one extracted duty: clause path, verbatim quote, normalized statement, modality (`shall` / `may` / `best_judgment`), trigger condition, deadline or periodicity, threshold, who it applies to, the citation (page + character offsets + source hash), a citation-fidelity score, and a lifecycle status (`proposed → verified → approved / rejected → superseded`).
-- `ObligationTest` — the compiled, executable check for an obligation (or `None` when it needs human judgement).
-- `CoverageReport` — the completeness certificate for a document.
-- `ChangeEvent` — a structural diff record (added / amended / removed) between two versions.
+    subgraph API["FastAPI API Layer"]
+        A1["Auth and firms"]
+        A2["Documents and obligations"]
+        A3["Compliance and changes"]
+        A4["Data sources, dashboard, audit, inspector"]
+    end
 
-**The firm overlay** is private to each tenant, scoped strictly by `firm_id`. This is where a specific firm's reality lives:
+    subgraph SERVICES["Domain Services"]
+        S1["Ingestion orchestration"]
+        S2["Compliance evaluation"]
+        S3["Change impact"]
+        S4["Data integration and audit"]
+    end
 
-- `Firm`, `User`, `DataSource` — the account and the firm's connected external database.
-- `Control` — an internal control the firm runs, linked to the obligation(s) it satisfies. **This is the record that gets created when an officer approves an obligation.**
-- `Evidence` — a captured artifact or metric proving a control operated.
-- `Gap` — an open deficiency (missing / stale / weak / contradictory) with a severity.
-- `ChangeRequest` — a drafted, cited action item waiting for a human decision.
-- `Interpretation` — a firm's own notes on an obligation.
-- `AuditEntry` — a hash-chained, tamper-evident log entry (this is what the Activity page shows).
+    subgraph TRUST["Intelligence and Trust Layer"]
+        AG["Focused AI agents<br/>LangGraph + LiteLLM"]
+        K["Deterministic kernel<br/>citations · coverage · diff<br/>tests · gaps · hashing"]
+    end
 
-And every row that matters carries **two independent clocks**:
+    subgraph DATA["SQLAlchemy Persistence"]
+        C["Canonical regulatory records"]
+        F["Firm-specific operational overlay"]
+    end
 
-- **Valid time** (`valid_from` / `valid_to`) — when the rule or evidence was actually in force.
-- **Transaction time** (`recorded_at`) — when RuleFlow found out about it.
+    EXT["Firm PostgreSQL / MySQL / SQLite<br/>rules · controls · evidence"]
 
-Keeping both is what powers the **Time Machine**: I can reconstruct exactly what was required, and what evidence existed, as of any past date — in a single query, with no separate history tables. A firm can *show* it was compliant last March, not just assert it.
+    UI --> API
+    API --> SERVICES
+    SERVICES --> AG
+    SERVICES --> K
+    AG --> DATA
+    K --> DATA
+    SERVICES --> DATA
+    SERVICES <--> EXT
+```
 
-## 8. The Agent Layer — where the reading happens
+### Frontend layer
 
-The agents (`backend/app/agents/`) are a small set of narrow specialists. None of them roam free — each gets a bounded input and must return strict JSON. All their prompts live in one file (`prompts.py`) so the system's instructions to the model are auditable in one place.
+React, TypeScript, React Router, TanStack Query, Tailwind CSS, Framer Motion, Recharts, and shared UI components provide the end-user workflows, protected routes, query state, progress visualization, and dashboard experience.
 
-- **Extraction Agent** — reads a single clause and proposes every obligation in it, *with a verbatim quote*. This is the only agent whose output feeds the canonical register directly, so it's the most heavily guarded. If its quote doesn't ground cleanly on the first try, it gets exactly one retry with a blunt "quote exactly what's in the text" instruction. If it still fails, the obligation is `flagged` for a human — never silently accepted, never silently dropped.
-- **Applicability Agent** — decides which intermediary categories and tiers an obligation binds. If it's ambiguous, it is required to say so rather than guess, and the ambiguity goes to a human.
-- **Cross-Reference Agent** — lists the references a clause makes ("para 3.2", "Schedule II"), then a deterministic filter throws away any reference whose text doesn't literally appear in the clause.
-- **Control Draft Agent** — the moment an obligation is approved, this drafts the operational control that satisfies it: a concise instruction, an owner role, and a cadence. If the model is unavailable it falls back to a deterministic draft built from the obligation's own text, so approval never breaks.
-- **Inspector Agent** — drafts SEBI-style findings from the firm's real compliance status, with a kernel guard that discards any finding citing an out-of-scope obligation or inventing a gap where the test is actually green.
-- **Scoring Agent** — rates overall Compliance Readiness (0–100) with a plain-language reason, and falls back to a transparent computed score if the model is down, so the dashboard is never blank and never hides how the number was produced.
+### API layer
 
-**Orchestration** (`graph.py`) is a real LangGraph state machine. An `extract` node self-loops clause by clause via a conditional edge, then an `enrich` node runs applicability over every verified obligation. SEBI documents can run to hundreds of clauses, so the graph checkpoints progress as it goes — which is exactly what lets the upload screen show live, clause-by-clause progress.
+FastAPI routers expose authentication, documents, obligations, firms, compliance, change requests, data sources, dashboard, inspector, and audit operations. Request and response models are defined through Pydantic schemas.
 
-**The LLM is swappable** (`llm/client.py`) through LiteLLM — one config value picks the model. I run it against fast hosted models (Groq's Llama or any OpenRouter model) because the kernel makes speed safe. And if no key is configured, the client fails loudly instead of quietly faking data.
+### Service layer
 
-## 9. The Verification Kernel — where the trust lives
+Domain services coordinate ingestion, agent calls, deterministic checks, persistence, external database access, progress state, change analysis, compliance evaluation, and audit recording. Business workflows remain organized independently from HTTP routing.
 
-This is the part I'm proudest of. The kernel (`backend/app/kernel/`) is pure, deterministic Python — no LLM, no network, no randomness. A regulator could re-run any of it and get the identical answer. Six pieces:
+### Intelligence and trust layer
 
-- **Citation Fidelity Gate (`citation.py`)** — the single most important mechanism in the whole platform. Every obligation carries a verbatim quote and a citation (page, character offsets, source hash). The gate re-reads *that exact span* from the authoritative text and computes an in-order similarity score between the quote and the span. If it's below the threshold (default **0.95**) or the source hash doesn't match the document version, the obligation is rejected as ungrounded. This is the reason a fast open model is safe here: it can propose anything, but only claims the source actually supports survive.
-- **Coverage Certificate (`coverage.py`)** — sweeps the entire document for every obligation signal ("shall", "must", "is required to", "no person shall", "shall not"...) and accounts for every occurrence as extracted, not-applicable, or unaccounted. The output is something a human can literally read: here is every "shall" sentence, and here is exactly which ones we did not capture. That is provable completeness — every signal in the document accounted for, by name.
-- **Version Diff Engine (`diff.py`)** — a three-pass, obligation-level comparison between two document versions: exact clause-path matches first, then similarity matching for clauses that got renumbered or moved, then whatever's left is genuinely added or removed. It computes the diff exactly and repeatably.
-- **Gap Ledger (`gaps.py`)** — a fixed table maps `(modality, reason)` to a severity, an amber test result softens severity by exactly one rank, and a documented formula turns open gaps into a 0–100 health score. Every number traces back to a rule you can read.
-- **Obligation Tests (`obligation_tests.py`)** — compliance as continuous integration. Quantitative obligations compile into an executable spec (`presence`, `recency`, `periodicity`, `deadline`, `threshold`) that runs against the firm's real evidence, honoring the `as_of` time so point-in-time answers are honest. Anything needing human judgement compiles to nothing on purpose — the kernel refuses to auto-decide what a person must decide.
-- **Hashing & the audit chain (`hashing.py`)** — document dedup plus a tamper-evident audit chain where each entry hashes the previous one (`chain_hash = SHA256(prev + payload + timestamp)`). Re-deriving the chain proves nothing in the compliance history was altered after the fact.
+LangGraph coordinates clause-level extraction and enrichment. LiteLLM provides a provider-independent model interface. The deterministic kernel verifies and computes the trust-critical results that feed the workflow.
 
-## 10. The three features that carry the product
+### Persistence and integration layer
 
-Everything above exists to make three everyday actions trustworthy. These are the features a compliance officer touches.
+SQLAlchemy stores canonical regulatory knowledge and firm-specific operating records. Schema reflection connects RuleFlow to a firm's existing PostgreSQL, MySQL, or SQLite data for rule discovery, evidence import, and adopted-obligation synchronization.
 
-### Approvals — decide, then it's written into your database
+## 7. Agent architecture
 
-An officer opens Approvals and sees each extracted obligation with its verbatim SEBI quote. They **Accept** or **Reject**. Accept does two things at once:
+We use focused agents with narrow responsibilities and explicit validation boundaries.
 
-1. It creates a `Control` in RuleFlow — the firm's live record that this duty is now owned, with an auto-drafted control description, owner, and cadence.
-2. It writes the adopted rule **into the firm's own connected database**, in a dedicated `ruleflow_adopted_obligations` table (portable SQL that works on Postgres, MySQL, or SQLite). It never touches the firm's existing tables, and it's idempotent — re-approving updates the same row instead of duplicating it. Reject removes that row again.
+| Agent capability | Responsibility | Validation path |
+|---|---|---|
+| Extraction | Convert one clause into structured obligation proposals | Citation gate, quote-correction pass, deterministic de-duplication |
+| Applicability | Suggest relevant intermediary categories and surface ambiguity | Firm context and visible human review |
+| Cross-reference | Identify referenced paragraphs and schedules | Literal reference validation against input text |
+| Control drafting | Turn an accepted obligation into an operational control | Stored obligation fields and structured fallback |
+| Obligation explanation | Present the requirement in plain language | Grounded obligation context and structured fallback |
+| Database rule extraction | Discover rules represented in connected firm data | Reflected-table validation |
+| Followed-rule impact | Relate a firm rule to a current SEBI obligation | Exact firm-rule and stored-obligation validation |
+| Readiness scoring | Explain readiness using operating counts and risks | Transparent computed inputs |
+| Inspector | Prepare thematic observations and recommendations | Stored-obligation and compliance-result validation |
 
-Because approving literally writes to the firm's database, I **gate the whole Approvals workflow behind a connected data source** — the page is locked, and the backend refuses the decision with a clear message, until a database is connected. After each approval the interface confirms exactly what happened: "written into your database (table …)", or a plain warning if the external write failed (in which case RuleFlow still keeps its own record, so nothing is lost).
+## 8. Deterministic compliance kernel
 
-### Action items — when a new circular hits a rule you already adopted
+The kernel gives RuleFlow a reproducible trust boundary.
 
-This is the feature that earns its keep over time. When a new document is ingested, RuleFlow diffs it against **the obligations this firm has already adopted** — only what they actually committed to. Wherever a rule they follow was amended or removed, it raises a cited action item that shows the adopted version and the new version side by side, plus a plain-English note on what to do. Newly *added* duties show up as suggestions on the Compliance page instead. There's also a one-click "Rescan for impact" that re-checks every document, and it's idempotent so it never creates duplicates. The officer approves, escalates, or rejects each item; nothing is auto-applied to their systems.
+| Kernel capability | What it produces |
+|---|---|
+| Citation fidelity | Source-span matching, token-support score, document-hash validation, and grounding state |
+| Coverage review | Duty-language signals, accounted sentences, and reviewer attention items |
+| Version diff | Added, amended, removed, unchanged, moved, and renumbered obligation relationships |
+| Obligation tests | Presence, recency, periodicity, deadline, and threshold test specifications and results |
+| Gap ledger | Missing, stale, weak, and contradictory classifications with deterministic severity |
+| Content hashing | Stable normalized document identity |
+| Audit hashing | Canonical payload serialization, chained hashes, and chain-integrity verification |
 
-### Compliance — what to add next, and where you stand
+## 9. Data architecture
 
-The Compliance page has two halves. On top, **Suggestions**: RuleFlow looks at the firm's category and recommends grounded obligations that apply to them but they haven't adopted yet, each with a one-click **Adopt** (which runs the exact same approve-and-write-back path). Below that, **the live picture** of everything they *have* adopted — each obligation's test run against their real evidence, colour-coded green/amber/red, with classified gaps and an overall readiness score. And the **Time Machine** answers "what did this look like on date X?" against the bitemporal history. This page scores only what the firm has genuinely adopted.
+We structured the data model around a shared regulatory truth and a separate firm operating context.
 
-Every one of these actions writes a tamper-evident entry to the **Activity** log, shown in plain English ("Approved an obligation and added the control: …", "Recalculated compliance — found 3 open gaps"), never as raw IDs.
+```mermaid
+flowchart LR
+    subgraph CANONICAL["Canonical Regulatory Layer"]
+        D["Document"] --> O["Obligation"]
+        O --> T["Obligation Test"]
+        D --> CR["Coverage Report"]
+        O --> CE["Change Event"]
+    end
 
-## 11. Connecting a firm's own database
+    subgraph OVERLAY["Firm Operational Layer"]
+        FM["Firm and User"] --> DS["Data Source"]
+        FM --> CT["Control"]
+        CT --> EV["Evidence"]
+        CT --> GP["Gap"]
+        FM --> RQ["Change Request"]
+        FM --> IN["Interpretation"]
+        FM --> AU["Audit Entry"]
+        FM --> FN["Finding"]
+    end
 
-A firm connects its existing database from Settings, and the connection is real — RuleFlow opens it, tests it, and reflects the schema. From there the integration runs both ways:
+    O --> CT
+    O --> RQ
+    O --> IN
+    O --> FN
+```
 
-- **Reading in:** it can pull rows from the firm's tables and map them into `Evidence`, so compliance tests run against data that already exists in the firm's systems instead of asking anyone to re-key it. It even uses the model to help classify which tables look like controls versus evidence.
-- **Writing out:** when an obligation is approved, the adopted rule and its control are written into the firm's `ruleflow_adopted_obligations` table.
+### Canonical regulatory records
 
-I kept the writes namespaced to a single, clearly-named table and made them idempotent and non-fatal on purpose — connecting RuleFlow should never put a firm's existing data at risk.
+- **Document** — circular metadata, content identity, source text, processing status, and page count.
+- **Obligation** — source quote, normalized duty, structured attributes, applicability, citation fidelity, lifecycle, and time fields.
+- **ObligationTest** — compiled test specification and latest result metadata.
+- **CoverageReport** — signal-level review checklist for a document.
+- **ChangeEvent** — obligation-level difference between regulation versions.
 
-## 12. The guarantees this gives you
+### Firm-specific operating records
 
-- **Every obligation is grounded.** Each one is re-verified against the source text, in order, word for word, or it doesn't enter the record. The citation gate is what makes everything downstream trustworthy.
-- **Completeness is provable.** The Coverage Certificate accounts for every obligation signal in a document by name — completeness is a number.
-- **The rules live in the firm's own database.** Approving a duty writes it back into the firm's systems, so their compliance state lives where they work.
-- **Impact is scoped to what you adopted.** Action items fire only when something the firm specifically committed to changes.
-- **Determinism where it counts.** Diffs, coverage, severity, scoring, and tests are fixed formulas — same input, same output, every time, fully re-runnable.
-- **History is honest.** Two independent clocks mean any past compliance state can be reconstructed exactly.
-- **The human decides.** Nothing enters the record without an explicit approve or reject; the system advises, the officer decides.
+- **Firm and User** — intermediary context, tier, account identity, and role data.
+- **DataSource** — connected database type, connection state, reflected details, and synchronization time.
+- **Control** — the firm's operational response and obligation mappings.
+- **Evidence** — proof or metrics connected to a control with source and time metadata.
+- **Gap** — classified deficiency, severity, and remediation state.
+- **ChangeRequest** — cited action item and its decision lifecycle.
+- **Interpretation** — firm-specific notes and sources for an obligation.
+- **AuditEntry** — actor, action, payload, before/after state, and hash-chain fields.
+- **Finding** — thematic inspection observation, severity, citation, and recommendation.
 
-## 13. Tech stack
+This model lets the regulatory source remain canonical while adoption, controls, evidence, interpretations, actions, and decisions remain specific to each firm.
 
-**Backend** — Python 3.12, FastAPI, SQLAlchemy 2.0, `psycopg` for Postgres, pydantic-settings for config, LangGraph for agent orchestration, LiteLLM for provider-agnostic model calls (Groq / OpenRouter), PyMuPDF for PDF parsing, structlog for logging, pytest for tests.
+## 10. Security, governance, and traceability
 
-**Frontend** — React 18, TypeScript, Vite, Tailwind CSS, React Router 6, TanStack Query 5, Framer Motion, Recharts, lucide-react.
+We built governance into the workflow through:
 
-**Data & infra** — PostgreSQL (Neon, serverless) as the primary store, Render for the backend, Vercel for the frontend.
+- PBKDF2-HMAC-SHA256 password hashing with random salts;
+- signed, expiring HMAC-SHA256 bearer sessions;
+- authenticated firm context for operational workflows;
+- `firm_id` scoping across firm records and services;
+- source quotes, clause paths, offsets, hashes, and fidelity results;
+- reflected-schema validation before firm database rules are accepted;
+- dedicated namespaced storage for adopted-obligation write-back;
+- visible synchronization and processing outcomes;
+- human decisions for obligation adoption and change actions; and
+- a verifiable hash-chained activity ledger.
 
-## 14. Repository layout
+These controls create a traceable path from regulatory text to the person, control, evidence, result, and action associated with it.
+
+## 11. Technology stack
+
+### Backend
+
+- Python 3.12
+- FastAPI
+- Pydantic and pydantic-settings
+- SQLAlchemy 2.0
+- PostgreSQL and SQLite persistence paths
+- Psycopg for PostgreSQL connectivity
+- PyMuPDF for PDF extraction
+- LangGraph for agent orchestration
+- LiteLLM for provider-independent model access
+- Structlog for structured logging
+- Pytest for kernel, service, API, authentication, and integration validation
+
+### Frontend
+
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- React Router
+- TanStack Query
+- Framer Motion
+- Recharts
+- Lucide React
+
+### Firm-system integration
+
+- PostgreSQL
+- MySQL
+- SQLite
+- SQLAlchemy schema reflection and data access
+
+## 12. Business and regulatory impact
+
+### For compliance teams
+
+RuleFlow shortens the path from receiving a circular to reviewing its operational implications. Officers work with structured obligations, exact source quotations, coverage-review signals, firm rules, controls, evidence, gaps, and action items in one connected flow.
+
+### For control owners and management
+
+The platform shows which obligations are in scope, which controls address them, what evidence supports them, where action is required, and who owns the next decision. Readiness is built from stored operating data and traceable calculations.
+
+### For audit and inspection preparation
+
+RuleFlow creates citation-grounded obligation records, repeatable evidence tests, point-in-time compliance views, thematic findings, human-readable activity history, and hash-chain integrity verification. This creates a defensible path from source requirement to operating response.
+
+### For regulated intermediaries
+
+The canonical-plus-firm-overlay model supports consistent regulatory interpretation while preserving each firm's own category, controls, evidence, and decisions. Existing databases become part of the workflow through reflected rule discovery and evidence import.
+
+### For the regulatory ecosystem
+
+Machine-actionable obligations, structured changes, grounded citations, and consistent evidence relationships can make regulatory communication easier to interpret, operate, review, and inspect across different types of intermediaries.
+
+## 13. Alignment with SEBI TechSprint 2026 Theme 2
+
+| Theme 2 need | What we created in RuleFlow |
+|---|---|
+| Translate regulatory text | Clause-level extraction into structured obligations |
+| Preserve regulatory rigor | Verbatim quotes, offsets, source hashes, and citation fidelity |
+| Review extraction coverage | Duty-signal checklist across the complete document |
+| Make obligations operational | Human adoption, drafted controls, and firm-specific mappings |
+| Connect with firm reality | Database reflection, followed-rule discovery, and evidence import |
+| Evaluate compliance | Compiled tests, point-in-time evaluation, and deterministic gap classification |
+| Respond to regulatory change | Version diffing, followed-rule impact analysis, and cited action items |
+| Keep decisions accountable | Accept, reject, approve, escalate, apply, and close workflows |
+| Support auditability | Source-linked records and a verifiable hash-chained activity trail |
+
+RuleFlow turns Theme 2 into an end-to-end operating model: **regulation in, grounded obligation out, operational evidence connected, human action recorded.**
+
+## 14. Validation in the repository
+
+The backend test suite exercises the trust-critical kernel, service, API, authentication, and integration paths. It covers:
+
+- citation fidelity and source grounding;
+- coverage-signal accounting;
+- obligation-version diffing;
+- obligation-test compilation and evaluation;
+- deterministic gap classification;
+- adoption-driven compliance scope;
+- evidence-based green and red outcomes;
+- category-based obligation suggestions;
+- point-in-time evaluation;
+- change requests and human decisions;
+- audit-chain integrity;
+- account registration, login, and authenticated identity;
+- SQLite data-source connection and evidence import; and
+- plain-English explanation fallback behavior.
+
+This validation keeps the exact, testable parts of compliance processing reproducible throughout the application.
+
+## 15. Repository structure
 
 ```text
 backend/
   app/
-    agents/       cognition — LangGraph pipeline + reasoning agents
-      extraction.py    Extraction Agent + citation self-correction + de-dup
-      graph.py         LangGraph orchestration (extract → enrich)
-      reasoning.py     applicability, cross-reference, control drafting
-      inspector.py     Inspector Agent (kernel-guarded findings)
-      scoring.py       readiness scoring (AI + transparent fallback)
-      prompts.py       every system prompt, in one place
-    kernel/       trust — deterministic verification, zero LLM
-      citation.py      Citation Fidelity Gate
-      coverage.py      Coverage Certificate
-      diff.py          Version Diff Engine (3-pass)
-      gaps.py          Gap Ledger + health score
-      obligation_tests.py  compiled executable tests
-      hashing.py       content hash + audit hash chain
-    ingest/       PDF parsing + clause-tree segmentation
-    llm/          LiteLLM wrapper (Groq / OpenRouter)
-    db/           SQLAlchemy models — two-layer, bitemporal
-    schemas/      Pydantic request/response models
-    api/          FastAPI routers (thin — delegate to services)
-    services/     business logic tying kernel + agents + db together
-    scripts/      utilities (e.g. reset_db.py)
-  tests/          pytest — kernel + service integration + auth
-frontend/         React + Vite + TypeScript + Tailwind
-render.yaml       backend deployment blueprint
-vercel.json       frontend SPA routing
+    agents/          focused extraction, reasoning, scoring, and inspection agents
+    api/             FastAPI routers
+    db/              SQLAlchemy base, initialization, and domain models
+    ingest/          PDF parsing and clause structuring
+    kernel/          citation, coverage, diff, gaps, tests, and hashing
+    llm/             provider-independent LiteLLM client
+    schemas/         request and response models
+    services/        ingestion, compliance, change, audit, and data-source workflows
+    main.py           application composition and router registration
+    security.py       password hashing and signed session tokens
+  tests/              kernel, API, service, authentication, and integration tests
+
+frontend/
+  src/
+    components/       layout, workflow visualization, guards, motion, and shared UI
+    lib/              API client, authentication, firm context, and utilities
+    pages/            public pages and compliance workflows
+    App.tsx           routes and protected workspace structure
+    index.css         global design system and Tailwind styles
 ```
+
+## 16. The outcome
+
+We created RuleFlow to make the journey from regulatory text to operational compliance visible, structured, and accountable.
+
+```mermaid
+flowchart LR
+    A["What SEBI wrote"] --> B["What RuleFlow extracted"]
+    B --> C["What deterministic checks verified"]
+    C --> D["What the firm follows and evidences"]
+    D --> E["What the responsible person decided"]
+```
+
+Agents give us speed and language understanding. The deterministic kernel gives us reproducibility and traceability. Connected firm data gives us operational context. Human review gives every important decision an accountable owner.
+
+That is the system we built for SEBI TechSprint 2026 Theme 2.
