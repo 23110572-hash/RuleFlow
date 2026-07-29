@@ -6,18 +6,56 @@ RuleFlow is the compliance platform we created to convert SEBI circulars, master
 
 ## 1. Problem statement
 
-Every SEBI-regulated intermediary — a stockbroker, a depository participant, an investment adviser, an AMC — lives under a constant stream of regulatory text. SEBI publishes circulars, master circulars, and amendments continuously, and each one can create a new obligation, tighten an existing one, or quietly retire one.
+The securities market ecosystem operates under a continuously evolving regulatory framework. SEBI issues circulars, master circulars, notifications, and guidelines on an ongoing basis, each carrying specific obligations for one or more categories of market intermediaries — stockbrokers, depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
 
-When a new circular lands, a compliance team has to do four hard things, by hand:
+This creates **two distinct but deeply related compliance challenges**.
 
-1. Read pages of dense legal language and understand it precisely.
-2. Work out exactly which duties it creates, changes, or removes.
-3. Figure out which of their own internal controls and evidence processes are affected.
-4. Fix those controls before the next inspection finds the gap.
+### Problem 1 — Dynamic regulatory translation
 
-I looked at this and saw three problems that no amount of "work harder" fixes. It's **slow** — a long circular can take days to digest. It's **inconsistent** — two officers reading the same clause reach different conclusions, and there is no way to prove you caught everything. And it's **risky** — when a duty slips through, the result is a regulatory finding, with real financial and reputational cost.
+The first challenge is interpreting a new or amended regulatory requirement, identifying the intermediary categories it affects, mapping it to operational processes, and updating compliance workflows in a timely and consistent manner.
 
-Theme 2 of SEBI TechSprint 2026 asks for a system that dynamically translates regulatory text into operational action — taking raw regulation and turning it into machine-actionable, auditable compliance workflows, without losing the rigor a regulator expects. That rigor is the whole game, and it's what I designed RuleFlow around from the first line of code.
+Today, this depends heavily on manual legal interpretation, internal compliance teams, and circular-by-circular tracking. The result is:
+
+- delayed translation of regulatory text into operational action;
+- uneven implementation across affected intermediaries;
+- divergent interpretations of the same requirement; and
+- difficulty identifying exactly which controls must change when a regulation changes.
+
+### Problem 2 — Ongoing compliance management
+
+The second challenge is managing compliance after an obligation has been identified. Compliance teams must continuously track their existing obligations, connect each obligation to evidence of fulfilment, maintain decision and audit trails, identify compliance gaps, and remediate those gaps before they become regulatory findings.
+
+This work is operationally intensive, often manual, and prone to gaps — particularly for smaller intermediaries with limited compliance resources. Obligations, internal controls, evidence, interpretations, and remediation actions frequently remain spread across PDFs, spreadsheets, emails, and separate operational databases.
+
+### The shared root cause
+
+Both challenges have the same underlying cause: **the regulatory framework exists as unstructured, human-readable text, while operational compliance systems require structured, machine-actionable rules.**
+
+```mermaid
+flowchart LR
+    A["SEBI circulars, master circulars,<br/>notifications, and guidelines"] --> B["Unstructured, human-readable<br/>regulatory requirements"]
+    B --> C["Problem 1<br/>Dynamic regulatory translation"]
+    B --> D["Problem 2<br/>Ongoing compliance management"]
+    C --> E["Delayed or inconsistent<br/>operational implementation"]
+    D --> F["Evidence gaps, weak audit trails,<br/>and late remediation"]
+    E --> G["Gap between regulatory issuance<br/>and operational compliance action"]
+    F --> G
+    G --> H["Need for structured, programmable,<br/>and auditable compliance logic"]
+```
+
+Bridging this gap — transforming regulatory intent into programmable, auditable compliance logic — is the core problem addressed by SEBI TechSprint 2026 Theme 2.
+
+### Desired outcome
+
+The desired outcome is a technology-based solution that demonstrably reduces the gap between regulatory issuance and operational compliance action, or materially improves the efficiency, accuracy, and auditability of compliance management for securities market intermediaries.
+
+The solution must identify the intermediary category and regulatory corpus used and demonstrate its performance through at least one concrete regulatory scenario.
+
+### Our demonstration focus
+
+For our primary hackathon flow, we focus on the **stockbroker** intermediary category and SEBI's publicly available **stockbroker circulars and master circulars** as the regulatory corpus. The same data model also represents obligations applicable to depositories, asset management companies, registrar and transfer agents, investment advisers, and market infrastructure institutions.
+
+Our concrete scenario follows a new or amended stockbroker requirement from document upload to clause-level extraction, citation verification, applicability, human adoption, control mapping, firm-database comparison, evidence testing, gap identification, and a cited remediation action.
 
 ## 2. Our solution
 
@@ -419,13 +457,40 @@ These controls create a traceable path from regulatory text to the person, contr
 
 ## 12. Business and regulatory impact
 
+### Impact at a glance
+
+| Compliance activity | Existing manual approach | RuleFlow-assisted approach | Indicative business impact |
+|---|---|---|---|
+| Extract obligations from a 30–60 page circular | Approximately 16–24 analyst-hours across reading, interpretation, and structuring | Automated clause-level extraction in minutes, followed by focused officer review in under 1 hour | **~95% reduction in first-pass analysis effort** |
+| Compare a new circular or amended version with the previous regulatory position | Approximately 4–8 hours of line-by-line and spreadsheet comparison | Deterministic obligation-level diff produced in seconds | **~99% faster regulatory change comparison** |
+| Process 50 relevant circulars in one year | Approximately 100–150 analyst-days of manual reading and comparison | Automated processing with approximately 6–7 analyst-days of focused review | **100+ analyst-days saved per year** in the modelled scenario |
+| Check whether duty language may have been missed | Reviewer-dependent manual re-reading with no consolidated checklist | Document-wide duty-signal scan with every detected signal shown as accounted or requiring review | **A new, explicit coverage-review capability** |
+| Trace a requirement to its operational response | Search across PDFs, spreadsheets, email, controls, and evidence repositories | Direct chain from source quote to obligation, control, evidence, gap, action, and decision | **Faster audit and inspection preparation** |
+| Identify which existing firm rules are affected by a regulatory change | Manual coordination between legal, compliance, operations, and technology teams | Grounded comparison between stored SEBI obligations and rules read from the firm's database | **Earlier, more focused remediation** |
+
+> **Impact model:** These figures are scenario-based hackathon estimates derived from the workflow assumptions below. They communicate the expected operational value of the implemented system and should be validated through a formal pilot on a representative regulatory corpus.
+
+### How we derived the headline figures
+
+| Headline | Calculation |
+|---|---|
+| **~95% reduction** | A midpoint manual baseline of 20 analyst-hours reduced to 1 hour of focused review: `(20 - 1) / 20 = 95%`. |
+| **~99% faster diff** | A conservative 4-hour manual comparison reduced to no more than 1 minute of deterministic processing: `(240 - 1) / 240 = 99.58%`. |
+| **100+ analyst-days saved** | `50 circulars × 2.5 analyst-days = 125 days` manually. At 1 review hour per circular, assisted review is approximately `50 / 8 = 6.25 days`, releasing approximately **118.75 analyst-days** for higher-value compliance work. |
+
+The model assumes an eight-hour analyst day, a 30–60 page regulatory document, two to three analyst-days for manual interpretation and structuring, no more than one hour for focused review after extraction, and 50 relevant circulars or amendments in a year.
+
 ### For compliance teams
 
 RuleFlow shortens the path from receiving a circular to reviewing its operational implications. Officers work with structured obligations, exact source quotations, coverage-review signals, firm rules, controls, evidence, gaps, and action items in one connected flow.
 
+The time released from repetitive reading, copying, and comparison can be redirected to interpretation, exception handling, control design, and remediation.
+
 ### For control owners and management
 
 The platform shows which obligations are in scope, which controls address them, what evidence supports them, where action is required, and who owns the next decision. Readiness is built from stored operating data and traceable calculations.
+
+This gives management a clearer view of compliance exposure and helps control owners prioritize changes according to regulatory impact.
 
 ### For audit and inspection preparation
 
@@ -434,6 +499,8 @@ RuleFlow creates citation-grounded obligation records, repeatable evidence tests
 ### For regulated intermediaries
 
 The canonical-plus-firm-overlay model supports consistent regulatory interpretation while preserving each firm's own category, controls, evidence, and decisions. Existing databases become part of the workflow through reflected rule discovery and evidence import.
+
+The reduction in repeated manual work is especially valuable for smaller intermediaries that must meet the same regulatory expectations with more limited compliance resources.
 
 ### For the regulatory ecosystem
 
