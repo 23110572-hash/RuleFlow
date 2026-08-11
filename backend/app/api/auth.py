@@ -40,6 +40,11 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
 def _session_payload(db: Session, user: User) -> dict:
     firm = db.get(Firm, user.firm_id) if user.firm_id else None
     ds = None
@@ -99,3 +104,13 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return _session_payload(db, user)
+
+
+@router.post("/password")
+def change_password(body: ChangePasswordIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(401, "invalid current password")
+    user.password_hash = hash_password(body.new_password)
+    audit.record(db, "account.password_changed", {"user_id": user.id}, firm_id=user.firm_id, actor=user.email)
+    db.commit()
+    return {"status": "ok"}

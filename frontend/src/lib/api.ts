@@ -43,6 +43,8 @@ export const api = {
   login: (email: string, password: string) =>
     request<Session>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => request<Session>("/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ status: string }>("/auth/password", { method: "POST", body: JSON.stringify({ current_password, new_password }) }),
 
   // data sources
   testDataSource: (kind: string, connection_uri: string) =>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { CheckCircle2, Database, Loader2, Plug, XCircle } from "lucide-react";
+import { CheckCircle2, Database, Loader2, Plug, XCircle, Lock } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Card, PageHeader, Spinner } from "@/components/ui";
@@ -14,14 +14,17 @@ export default function Settings() {
     <div>
       <PageHeader title="Settings" subtitle="Manage your profile and connect the systems your evidence lives in." />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <h3 className="mb-3 font-semibold text-ink-900">Profile</h3>
-          <Row label="Name" value={user?.full_name || "n/a"} />
-          <Row label="Email" value={user?.email || "n/a"} />
-          <Row label="Firm" value={firm?.name || "n/a"} />
-          <Row label="Category" value={(firm?.category ?? "").replace(/_/g, " ")} />
-          {firm?.tier && <Row label="Tier" value={firm.tier} />}
-        </Card>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <h3 className="mb-3 font-semibold text-ink-900">Profile</h3>
+            <Row label="Name" value={user?.full_name || "n/a"} />
+            <Row label="Email" value={user?.email || "n/a"} />
+            <Row label="Firm" value={firm?.name || "n/a"} />
+            <Row label="Category" value={(firm?.category ?? "").replace(/_/g, " ")} />
+            {firm?.tier && <Row label="Tier" value={firm.tier} />}
+          </Card>
+          <ChangePasswordCard />
+        </div>
         <ConnectCard />
       </div>
       <div className="mt-4"><SourcesCard /></div>
@@ -98,6 +101,60 @@ function SourcesCard() {
             </li>
           ))}
         </ul>
+      )}
+    </Card>
+  );
+}
+
+function ChangePasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => api.changePassword(currentPassword, newPassword),
+    onSuccess: () => {
+      setResult({ ok: true, message: "Password updated successfully" });
+      setCurrentPassword("");
+      setNewPassword("");
+      setTimeout(() => setResult(null), 3000);
+    },
+    onError: (e) => {
+      setResult({ ok: false, message: e instanceof Error ? e.message : "Failed to change password" });
+    },
+  });
+
+  return (
+    <Card>
+      <h3 className="mb-3 flex items-center gap-2 font-semibold text-ink-900"><Lock className="h-4 w-4" /> Change Password</h3>
+      <input
+        className="input mb-2"
+        type="password"
+        placeholder="Current Password"
+        value={currentPassword}
+        onChange={(e) => setCurrentPassword(e.target.value)}
+      />
+      <input
+        className="input mb-3"
+        type="password"
+        placeholder="New Password (min 6 chars)"
+        value={newPassword}
+        onChange={(e) => setNewPassword(e.target.value)}
+      />
+      <TButton
+        className="w-full"
+        disabled={!currentPassword || newPassword.length < 6 || mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
+        {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Update Password"}
+      </TButton>
+      {result && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          className={cn("mt-3 rounded-xl px-3.5 py-2.5 text-sm", result.ok ? "border border-green-200 bg-green-50 text-green-700" : "border border-red-200 bg-red-50 text-red-700")}>
+          {result.ok
+            ? <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {result.message}</span>
+            : <span className="flex items-start gap-2"><XCircle className="mt-0.5 h-4 w-4 flex-none" /> {result.message}</span>}
+        </motion.div>
       )}
     </Card>
   );
