@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-in-production"
     token_expiry_minutes: int = 60 * 24 * 7  # 7 days
 
+    # Email OTP (Gmail SMTP)
+    smtp_email: str = "krishnaagrawal0706@gmail.com"
+    smtp_password: str = "cdlh njvq idso sfvm"
+
     # Storage
     storage_dir: str = "./storage"
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, CheckCircle2, Database, Loader2, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Database, Loader2, Mail, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { TButton } from "@/components/motion";
@@ -20,14 +20,11 @@ const CATEGORIES = [
   ["stock_exchange", "Stock exchange"],
 ];
 
-const STEPS = ["Account", "Your firm", "Connect data"];
+const STEPS = ["Account", "Verify email", "Your firm", "Connect data"];
 
 export default function Register() {
   const { register, refresh, user } = useAuth();
   const navigate = useNavigate();
-  // Capture auth state ONCE on mount. A visitor who starts registration becomes
-  // authenticated at the firm step, but must remain on this page for the
-  // Connect-data step. Only users who were ALREADY logged in get redirected.
   const [alreadyAuthed] = useState(() => !!user);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -37,21 +34,63 @@ export default function Register() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // otp
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
   // firm
   const [firmName, setFirmName] = useState("");
   const [category, setCategory] = useState("stockbroker");
   const [tier, setTier] = useState("");
 
-  const next = () => setStep((s) => Math.min(2, s + 1));
+  const next = () => setStep((s) => Math.min(3, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
 
   if (alreadyAuthed) return <Navigate to="/app" replace />;
+
+  const sendOtp = async () => {
+    setError(""); setBusy(true);
+    try {
+      await api.sendOtp(email);
+      setOtpSent(true);
+      next(); // go to verify step
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send OTP");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    setError(""); setBusy(true);
+    try {
+      await api.verifyOtp(email, otp);
+      setOtpVerified(true);
+      next(); // go to firm step
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verification failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendOtp = async () => {
+    setError(""); setBusy(true);
+    try {
+      await api.sendOtp(email);
+      setError(""); setOtp("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resend OTP");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const createAccount = async () => {
     setError(""); setBusy(true);
     try {
       await register({ email, password, full_name: fullName, firm: { name: firmName, category, tier: tier || null } });
-      next(); // to connect-data step (now authenticated)
+      next(); // to connect-data step
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -68,20 +107,61 @@ export default function Register() {
             {step === 0 && (
               <Slide key="s0">
                 <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
-                <p className="mt-1 text-sm text-ink-500">Start with your details.</p>
+                <p className="mt-1 text-sm text-ink-500">Start with your details. We will verify your email.</p>
                 <div className="mt-6 space-y-3">
                   <Field label="Full name"><input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Asha Menon" /></Field>
                   <Field label="Work email"><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@firm.in" /></Field>
                   <Field label="Password"><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" /></Field>
                 </div>
-                <TButton className="mt-6 w-full py-3" disabled={!email || password.length < 6}
-                  onClick={next}>Continue <ArrowRight className="h-4 w-4" /></TButton>
+                {error && <ErrorLine msg={error} />}
+                <TButton className="mt-6 w-full py-3" disabled={!email || password.length < 6 || !fullName || busy}
+                  onClick={sendOtp}>
+                  {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending OTP…</> : <>Verify email <Mail className="h-4 w-4" /></>}
+                </TButton>
                 <SignInHint />
               </Slide>
             )}
 
             {step === 1 && (
               <Slide key="s1">
+                <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600"><Mail className="h-5 w-5" /></div>
+                <h1 className="text-2xl font-semibold tracking-tight">Verify your email</h1>
+                <p className="mt-1 text-sm text-ink-500">
+                  We sent a 6-digit code to <span className="font-medium text-ink-800">{email}</span>
+                </p>
+                <div className="mt-6 space-y-3">
+                  <Field label="Enter OTP">
+                    <input
+                      className="input text-center text-2xl tracking-[0.3em] font-semibold"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="000000"
+                      maxLength={6}
+                      autoFocus
+                    />
+                  </Field>
+                </div>
+                {error && <ErrorLine msg={error} />}
+                <div className="mt-6 flex gap-3">
+                  <TButton variant="ghost" onClick={back}><ArrowLeft className="h-4 w-4" /> Back</TButton>
+                  <TButton className="flex-1 py-3" disabled={otp.length !== 6 || busy} onClick={verifyOtp}>
+                    {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Verifying…</> : <>Verify <CheckCircle2 className="h-4 w-4" /></>}
+                  </TButton>
+                </div>
+                <p className="mt-4 text-center text-sm text-ink-500">
+                  Didn't receive it?{" "}
+                  <button onClick={resendOtp} disabled={busy} className="font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                    Resend OTP
+                  </button>
+                </p>
+              </Slide>
+            )}
+
+            {step === 2 && (
+              <Slide key="s2">
+                <div className="mb-3 flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+                  <CheckCircle2 className="h-4 w-4" /> Email verified
+                </div>
                 <h1 className="text-2xl font-semibold tracking-tight">Tell us about your firm</h1>
                 <p className="mt-1 text-sm text-ink-500">This determines which SEBI obligations apply to you.</p>
                 <div className="mt-6 space-y-3">
@@ -103,8 +183,8 @@ export default function Register() {
               </Slide>
             )}
 
-            {step === 2 && (
-              <Slide key="s2">
+            {step === 3 && (
+              <Slide key="s3">
                 <ConnectData onDone={async () => { await refresh(); navigate("/app"); }} onSkip={() => navigate("/app")} />
               </Slide>
             )}
@@ -186,7 +266,7 @@ function Stepper({ step }: { step: number }) {
         <div key={label} className="flex flex-1 items-center gap-2">
           <div className={cn("grid h-7 w-7 flex-none place-items-center rounded-full text-xs font-semibold transition",
             i <= step ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-400")}>{i + 1}</div>
-          <span className={cn("text-xs font-medium", i <= step ? "text-ink-800" : "text-ink-400")}>{label}</span>
+          <span className={cn("hidden sm:inline text-xs font-medium", i <= step ? "text-ink-800" : "text-ink-400")}>{label}</span>
           {i < STEPS.length - 1 && <div className={cn("h-px flex-1", i < step ? "bg-brand-300" : "bg-ink-200")} />}
         </div>
       ))}

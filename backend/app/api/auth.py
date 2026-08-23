@@ -1,4 +1,4 @@
-"""Authentication API — register (account + firm + optional data source), login, me."""
+"""Authentication API — register (account + firm + optional data source), login, me, OTP verification."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +10,7 @@ from app.api.deps import get_current_user
 from app.db.base import get_db
 from app.db.models import Firm, User
 from app.security import create_token, hash_password, verify_password
-from app.services import audit, datasource_service
+from app.services import audit, datasource_service, otp_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -45,6 +45,15 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=6)
 
 
+class SendOtpIn(BaseModel):
+    email: str
+
+
+class VerifyOtpIn(BaseModel):
+    email: str
+    otp: str
+
+
 def _session_payload(db: Session, user: User) -> dict:
     firm = db.get(Firm, user.firm_id) if user.firm_id else None
     ds = None
@@ -63,8 +72,35 @@ def _session_payload(db: Session, user: User) -> dict:
     }
 
 
+@router.post("/send-otp")
+def send_otp(body: SendOtpIn, db: Session = Depends(get_db)):
+    """Send a 6-digit OTP to the provided email for verification."""
+    # Check if email is already registered
+    existing = db.execute(select(User).where(User.email == str(body.email))).scalars().first()
+    if existing:
+        raise HTTPException(409, "an account with this email already exists")
+
+    result = otp_service.send_otp(body.email)
+    if not result["ok"]:
+        raise HTTPException(500, result["message"])
+    return {"message": result["message"]}
+
+
+@router.post("/verify-otp")
+def verify_otp(body: VerifyOtpIn):
+    """Verify the OTP sent to the email."""
+    result = otp_service.verify_otp(body.email, body.otp)
+    if not result["ok"]:
+        raise HTTPException(400, result["message"])
+    return {"message": result["message"], "verified": True}
+
+
 @router.post("/register")
 def register(body: RegisterIn, db: Session = Depends(get_db)):
+    # Verify email was OTP-verified before allowing registration
+    if not otp_service.is_email_verified(str(body.email)):
+        raise HTTPException(403, "Email not verified. Please verify your email with OTP first.")
+
     existing = db.execute(select(User).where(User.email == str(body.email))).scalars().first()
     if existing:
         raise HTTPException(409, "an account with this email already exists")
@@ -83,6 +119,9 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     db.flush()
     audit.record(db, "account.registered", {"user_id": user.id, "firm_id": firm.id}, firm_id=firm.id, actor=user.email)
     db.commit()
+
+    # Clear the verification flag
+    otp_service.clear_verification(str(body.email))
 
     if body.data_source and body.data_source.connection_uri:
         datasource_service.save_data_source(

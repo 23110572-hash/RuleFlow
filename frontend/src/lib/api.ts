@@ -45,6 +45,10 @@ export const api = {
   me: () => request<Session>("/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
     request<{ status: string }>("/auth/password", { method: "POST", body: JSON.stringify({ current_password, new_password }) }),
+  sendOtp: (email: string) =>
+    request<{ message: string }>("/auth/send-otp", { method: "POST", body: JSON.stringify({ email }) }),
+  verifyOtp: (email: string, otp: string) =>
+    request<{ message: string; verified: boolean }>("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp }) }),
 
   // data sources
   testDataSource: (kind: string, connection_uri: string) =>
