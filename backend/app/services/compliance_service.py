@@ -319,6 +319,7 @@ def suggest_obligations(
     firm_id: str,
     firm_category: str,
     limit: int = 100,
+    document_id: str | None = None,
 ) -> list[dict]:
     """Return canonical obligations RuleFlow recommends the firm adopt next.
 
@@ -327,15 +328,35 @@ def suggest_obligations(
        rejected are excluded.
     2. applies_to includes the firm's category (or is generic).
     3. The firm has no active Control referencing this obligation yet.
+    4. If ``document_id`` is given, only that document's obligations are
+       considered, so the UI can offer document-by-document suggestions.
 
     Ordered by clause_path so it reads like a table of contents. The response
     embeds the source document title/circular so the UI can render it directly
     without a second call.
     """
-    # 1. Grounded obligations only.
+    # Only ever suggest from this firm's own documents (tenant isolation).
+    firm_doc_ids = set(
+        db.execute(select(Document.id).where(Document.firm_id == firm_id)).scalars().all()
+    )
+    if not firm_doc_ids:
+        return []
+
+    # Optionally narrow to the single document the user selected.
+    if document_id is not None:
+        if document_id not in firm_doc_ids:
+            return []  # not this firm's document
+        scope_doc_ids: list[str] = [document_id]
+    else:
+        scope_doc_ids = list(firm_doc_ids)
+
+    # 1. Grounded obligations only, from the in-scope documents.
     stmt = (
         select(Obligation)
-        .where(Obligation.status.in_(["verified", "approved"]))
+        .where(
+            Obligation.source_document_id.in_(scope_doc_ids),
+            Obligation.status.in_(["verified", "approved"]),
+        )
         .order_by(Obligation.clause_path)
         .limit(max(limit, 1) * 4)  # room for post-filter shrinkage
     )

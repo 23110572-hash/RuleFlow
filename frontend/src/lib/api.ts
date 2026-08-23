@@ -108,8 +108,11 @@ export const api = {
   // compliance
   evaluate: (firmId: string) => request<Evaluation>(`/firms/${firmId}/compliance/evaluate`),
   gaps: (firmId: string) => request<Gap[]>(`/firms/${firmId}/compliance/gaps`),
-  suggestions: (firmId: string, limit = 100) =>
-    request<Suggestions>(`/firms/${firmId}/compliance/suggestions?limit=${limit}`),
+  suggestions: (firmId: string, limit = 100, documentId?: string) =>
+    request<Suggestions>(
+      `/firms/${firmId}/compliance/suggestions?limit=${limit}` +
+        (documentId ? `&document_id=${encodeURIComponent(documentId)}` : "")
+    ),
   timeMachine: (firmId: string, asOf: string) =>
     request<Evaluation>(`/firms/${firmId}/compliance/time-machine?as_of=${encodeURIComponent(asOf)}`),
 

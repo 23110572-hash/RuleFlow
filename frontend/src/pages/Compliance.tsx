@@ -25,8 +25,8 @@ export default function Compliance() {
   });
 
   const suggestions = useQuery({
-    queryKey: ["suggestions", firmId],
-    queryFn: () => api.suggestions(firmId!),
+    queryKey: ["suggestions", firmId, selectedDocId],
+    queryFn: () => api.suggestions(firmId!, 100, selectedDocId || undefined),
     enabled: !!firmId,
   });
 
@@ -116,10 +116,10 @@ function SuggestionsSection({
     return Array.from(groups.values());
   }, [data]);
 
-  // Filtered by selected document and search query
+  // Document scoping is done server-side (selectedDocId is part of the query),
+  // so here we only apply the free-text search within what came back.
   const filteredGroups = useMemo(() => {
     return groupedSuggestions
-      .filter((g) => !selectedDocId || g.docId === selectedDocId)
       .map((g) => {
         const q = searchQuery.toLowerCase().trim();
         if (!q) return g;
@@ -132,7 +132,7 @@ function SuggestionsSection({
         return { ...g, items: matchingItems };
       })
       .filter((g) => g.items.length > 0);
-  }, [groupedSuggestions, selectedDocId, searchQuery]);
+  }, [groupedSuggestions, searchQuery]);
 
   return (
     <div className="mb-2">
@@ -164,12 +164,12 @@ function SuggestionsSection({
             className="input max-w-[240px] text-xs"
             value={selectedDocId}
             onChange={(e) => onSelectDoc(e.target.value)}
-            aria-label="Filter suggestions by regulation"
+            aria-label="Choose a regulation to see its suggestions"
           >
-            <option value="">All Regulations ({groupedSuggestions.length})</option>
-            {groupedSuggestions.map((g) => (
-              <option key={g.docId} value={g.docId}>
-                {g.docLabel} ({g.items.length})
+            <option value="">All regulations ({docs.length})</option>
+            {docs.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.circular_number || d.title || "Untitled regulation"}
               </option>
             ))}
           </select>
@@ -187,8 +187,9 @@ function SuggestionsSection({
       ) : !data || data.items.length === 0 ? (
         <Card>
           <div className="text-sm text-ink-500">
-            You've adopted everything RuleFlow can recommend for your category right now. Upload
-            more regulations to surface new suggestions.
+            {selectedDocId
+              ? "No pending suggestions for this regulation — you've adopted everything from it. Pick another document or select \"All regulations\"."
+              : "You've adopted everything RuleFlow can recommend for your category right now. Upload more regulations to surface new suggestions."}
           </div>
         </Card>
       ) : filteredGroups.length === 0 ? (

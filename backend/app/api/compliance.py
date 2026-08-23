@@ -61,17 +61,23 @@ def list_gaps(firm_id: str, status: str = "open", db: Session = Depends(get_db))
 def list_suggestions(
     firm_id: str,
     limit: int = Query(100, ge=1, le=500),
+    document_id: str | None = Query(
+        None, description="only suggest obligations from this document"
+    ),
     db: Session = Depends(get_db),
 ):
     """Obligations RuleFlow recommends this firm adopt next.
 
     Criteria: grounded (verified/approved), applies_to matches the firm's
     category (or is generic), and the firm has no active Control for it yet.
+    Pass ``document_id`` to get suggestions for a single regulation only.
     The Compliance page renders these with an "Adopt" button that calls
     POST /obligations/{id}/decision with decision=approve.
     """
     f = _firm(db, firm_id)
-    items = compliance_service.suggest_obligations(db, firm_id, f.category, limit=limit)
+    items = compliance_service.suggest_obligations(
+        db, firm_id, f.category, limit=limit, document_id=document_id
+    )
     return {"total": len(items), "items": items}
 
 
