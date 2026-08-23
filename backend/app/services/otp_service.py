@@ -6,8 +6,6 @@ import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-import httpx
-
 from app.config import settings
 
 # In-memory OTP store: {email: {"code": "123456", "expires": timestamp}}
@@ -74,9 +72,16 @@ def clear_verification(email: str) -> None:
 
 
 def _send_email(to_email: str, otp_code: str) -> None:
-    """Send OTP email via Resend HTTP API (works on Render where SMTP is blocked).
-    Falls back to direct SMTP if Resend key not configured."""
-    sender_email = settings.smtp_email
+    """Send OTP email via Gmail SMTP SSL (port 465) — same approach as SkillSwap."""
+    import smtplib
+
+    smtp_server = settings.smtp_server
+    smtp_port = settings.smtp_port
+    smtp_user = settings.smtp_user
+    smtp_password = settings.smtp_password
+
+    if not smtp_user or not smtp_password:
+        raise RuntimeError("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD env vars.")
 
     html = f"""
     <html>
@@ -98,34 +103,13 @@ def _send_email(to_email: str, otp_code: str) -> None:
     </html>
     """
 
-    # Use Resend HTTP API (works on Render - no SMTP needed)
-    resend_key = settings.resend_api_key
-    if resend_key:
-        resp = httpx.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
-            json={
-                "from": f"RuleFlow <{settings.resend_from_email}>",
-                "to": [to_email],
-                "subject": f"RuleFlow - Your Verification Code: {otp_code}",
-                "html": html,
-            },
-            timeout=15,
-        )
-        if resp.status_code in (200, 201):
-            return
-        raise RuntimeError(f"Resend API error ({resp.status_code}): {resp.text}")
-
-    # Fallback: direct SMTP (works locally, blocked on Render free tier)
-    import smtplib
-    sender_password = settings.smtp_password.replace(" ", "")
     msg = MIMEMultipart("alternative")
-    msg["From"] = f"RuleFlow <{sender_email}>"
+    msg["From"] = f"RuleFlow <{smtp_user}>"
     msg["To"] = to_email
     msg["Subject"] = f"RuleFlow - Your Verification Code: {otp_code}"
     msg.attach(MIMEText(f"Your RuleFlow verification code is: {otp_code}\n\nExpires in 5 minutes.", "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, to_email, msg.as_string())
+    with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, to_email, msg.as_string())

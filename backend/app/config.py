@@ -47,13 +47,11 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-in-production"
     token_expiry_minutes: int = 60 * 24 * 7  # 7 days
 
-    # Email OTP (Gmail SMTP)
-    smtp_email: str = "krishnaagrawal0706@gmail.com"
-    smtp_password: str = "cdlhnjvqidsosfvm"
-
-    # Resend API (HTTPS email - works on Render where SMTP is blocked)
-    resend_api_key: str = ""
-    resend_from_email: str = "otp@ruleflow.dev"
+    # Email OTP (Gmail SMTP - same config as SkillSwap)
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_user: str = "krishnaagrawal0706@gmail.com"
+    smtp_password: str = "yxjovzacuabanpbn"
 
     # Storage
     storage_dir: str = "./storage"
