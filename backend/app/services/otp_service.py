@@ -71,9 +71,12 @@ def clear_verification(email: str) -> None:
 
 
 def _send_email(to_email: str, otp_code: str) -> None:
-    """Send OTP email via Gmail SMTP."""
+    """Send OTP email via Gmail SMTP. Tries SSL (port 465) first, then STARTTLS (port 587)."""
     sender_email = settings.smtp_email
     sender_password = settings.smtp_password
+
+    if not sender_email or not sender_password:
+        raise RuntimeError("SMTP credentials not configured (SMTP_EMAIL / SMTP_PASSWORD env vars)")
 
     msg = MIMEMultipart("alternative")
     msg["From"] = f"RuleFlow <{sender_email}>"
@@ -105,7 +108,17 @@ def _send_email(to_email: str, otp_code: str) -> None:
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+    # Try SSL (port 465) first — more reliable on cloud platforms
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(sender_email, sender_password.replace(" ", ""))
+            server.sendmail(sender_email, to_email, msg.as_string())
+            return
+    except Exception:
+        pass
+
+    # Fallback to STARTTLS (port 587)
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
         server.starttls()
-        server.login(sender_email, sender_password)
+        server.login(sender_email, sender_password.replace(" ", ""))
         server.sendmail(sender_email, to_email, msg.as_string())
