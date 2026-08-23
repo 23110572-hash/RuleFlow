@@ -29,9 +29,11 @@ def send_otp(email: str) -> dict:
         _send_email(email, code)
         return {"ok": True, "message": "OTP sent to your email"}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         # Remove stored OTP on send failure
         _otp_store.pop(email, None)
-        return {"ok": False, "message": f"Failed to send OTP: {str(e)}"}
+        return {"ok": False, "message": f"Failed to send OTP: {type(e).__name__}: {str(e)}"}
 
 
 def verify_otp(email: str, code: str) -> dict:

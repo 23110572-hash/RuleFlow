@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Email OTP (Gmail SMTP)
     smtp_email: str = "krishnaagrawal0706@gmail.com"
-    smtp_password: str = "cdlh njvq idso sfvm"
+    smtp_password: str = "cdlhnjvqidsosfvm"
 
     # Storage
     storage_dir: str = "./storage"
