@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { ArrowRight, FileText, GitPullRequest, ShieldCheck, UploadCloud } from "lucide-react";
-import { api, Coverage, DocumentT, IngestionProgress } from "@/lib/api";
-import { Card, EmptyState, PageHeader, Spinner } from "@/components/ui";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowRight, ChevronDown, FileText, GitPullRequest, UploadCloud } from "lucide-react";
+import { api, Coverage, DocumentT, IngestionProgress, Obligation } from "@/lib/api";
+import { EmptyState, PageHeader, Spinner } from "@/components/ui";
 import { AgentFlow, FlowResult } from "@/components/AgentFlow";
 import { TButton } from "@/components/motion";
 import { useAuth } from "@/lib/auth";
@@ -140,8 +140,8 @@ export default function Documents() {
       {isLoading ? <Spinner /> : docs.length === 0 ? (
         <EmptyState title="No regulations yet" hint="Drop your first SEBI circular above." icon={<FileText className="h-8 w-8" />} />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {docs.map((d) => <DocCard key={d.id} doc={d} />)}
+        <div className="flex flex-col gap-2">
+          {docs.map((d) => <DocStrip key={d.id} doc={d} />)}
         </div>
       )}
     </div>
@@ -202,33 +202,122 @@ function friendlyError(err: unknown): string {
   return msg;
 }
 
-function DocCard({ doc }: { doc: DocumentT }) {
+function DocStrip({ doc }: { doc: DocumentT }) {
+  const [open, setOpen] = useState(false);
   const failed = doc.status === "error";
+
+  // Only fetch the document's obligations once the strip is expanded, so the
+  // list stays cheap when a firm has many regulations.
+  const { data: obligations = [], isLoading } = useQuery({
+    queryKey: ["document-pages", doc.id],
+    queryFn: () => api.obligations({ document_id: doc.id }),
+    enabled: open && !failed,
+    staleTime: 60_000,
+  });
+
+  // Distinct pages RuleFlow actually pulled obligations from, in reading order.
+  const pagesConsidered = useMemo(() => {
+    const seen = new Set<number>();
+    for (const o of obligations as Obligation[]) {
+      const raw = (o.citation as { page?: unknown } | null | undefined)?.page;
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (Number.isFinite(n) && n > 0) seen.add(n);
+    }
+    return [...seen].sort((a, b) => a - b);
+  }, [obligations]);
+
   return (
-    <Card>
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-sm font-semibold text-ink-900">{doc.title}</div>
-          <div className="mt-0.5 text-xs text-ink-400">
+    <div className={cn("card overflow-hidden transition", open && "ring-1 ring-brand-200")}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-ink-50/60"
+      >
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-500">
+          <FileText className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-ink-900">{doc.title}</div>
+          <div className="mt-0.5 truncate text-xs text-ink-400">
             {doc.circular_number ? `${doc.circular_number} · ` : ""}{doc.category ?? "SEBI Regulation"}
           </div>
         </div>
-        <span className="pill bg-brand-50 text-brand-700 font-semibold">{doc.obligation_count} obligations</span>
-      </div>
-      <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-400">
-        <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700 font-medium">Verified Regulation</span>
-        <span className="rounded-md bg-ink-50 px-2 py-1">{doc.page_count} pages</span>
-      </div>
-      {failed ? (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
-          The last analysis of this document failed. Upload it again to retry.
+        <div className="hidden items-center gap-2 sm:flex">
+          <span className="pill bg-brand-50 text-brand-700 font-semibold">{doc.obligation_count} obligations</span>
+          <span className="rounded-md bg-ink-50 px-2 py-1 text-[11px] text-ink-500">{doc.page_count} pages</span>
         </div>
-      ) : doc.obligation_count === 0 ? (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
-          No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
-        </div>
-      ) : null}
-    </Card>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-ink-400 transition-transform", open && "rotate-180")} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-t border-ink-100"
+          >
+            <div className="space-y-4 p-4">
+              <div className="flex items-center gap-2 sm:hidden">
+                <span className="pill bg-brand-50 text-brand-700 font-semibold">{doc.obligation_count} obligations</span>
+                <span className="rounded-md bg-ink-50 px-2 py-1 text-[11px] text-ink-500">{doc.page_count} pages</span>
+              </div>
+
+              {failed ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
+                  The last analysis of this document failed. Upload it again to retry.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-ink-50 px-3 py-2.5">
+                      <div className="label">Total pages</div>
+                      <div className="mt-0.5 text-lg font-semibold text-ink-900">{doc.page_count}</div>
+                    </div>
+                    <div className="rounded-xl bg-ink-50 px-3 py-2.5">
+                      <div className="label">Pages with obligations</div>
+                      <div className="mt-0.5 text-lg font-semibold text-ink-900">
+                        {isLoading ? "…" : pagesConsidered.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-xs font-medium text-ink-600">Pages considered</div>
+                    {isLoading ? (
+                      <Spinner label="Reading citations…" />
+                    ) : pagesConsidered.length === 0 ? (
+                      <div className="text-xs text-ink-400">
+                        No specific pages were cited for this document's obligations.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {pagesConsidered.map((p) => (
+                          <span
+                            key={p}
+                            className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-700"
+                          >
+                            p. {p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {doc.obligation_count === 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                      No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
