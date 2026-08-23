@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, FileText, GitPullRequest, UploadCloud } from "lucide-react";
-import { api, Coverage, DocumentT, IngestionProgress, Obligation } from "@/lib/api";
+import { api, Coverage, DocumentT, IngestionProgress } from "@/lib/api";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui";
 import { AgentFlow, FlowResult } from "@/components/AgentFlow";
 import { TButton } from "@/components/motion";
@@ -206,15 +206,6 @@ function DocStrip({ doc }: { doc: DocumentT }) {
   const [open, setOpen] = useState(false);
   const failed = doc.status === "error";
 
-  // Only fetch the document's obligations once the strip is expanded, so the
-  // list stays cheap when a firm has many regulations.
-  const { data: obligations = [], isLoading } = useQuery({
-    queryKey: ["document-pages", doc.id],
-    queryFn: () => api.obligations({ document_id: doc.id }),
-    enabled: open && !failed,
-    staleTime: 60_000,
-  });
-
   // Coverage certificate: what was captured, what is not applicable, and the
   // duty sentences still waiting on a human. A 404 just means no report exists.
   const {
@@ -228,17 +219,6 @@ function DocStrip({ doc }: { doc: DocumentT }) {
     retry: false,
     staleTime: 60_000,
   });
-
-  // Distinct pages RuleFlow actually pulled obligations from, in reading order.
-  const pagesConsidered = useMemo(() => {
-    const seen = new Set<number>();
-    for (const o of obligations as Obligation[]) {
-      const raw = (o.citation as { page?: unknown } | null | undefined)?.page;
-      const n = typeof raw === "number" ? raw : Number(raw);
-      if (Number.isFinite(n) && n > 0) seen.add(n);
-    }
-    return [...seen].sort((a, b) => a - b);
-  }, [obligations]);
 
   return (
     <div className={cn("card overflow-hidden transition", open && "ring-1 ring-brand-200")}>
@@ -285,41 +265,6 @@ function DocStrip({ doc }: { doc: DocumentT }) {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-ink-50 px-3 py-2.5">
-                      <div className="label">Total pages</div>
-                      <div className="mt-0.5 text-lg font-semibold text-ink-900">{doc.page_count}</div>
-                    </div>
-                    <div className="rounded-xl bg-ink-50 px-3 py-2.5">
-                      <div className="label">Pages with obligations</div>
-                      <div className="mt-0.5 text-lg font-semibold text-ink-900">
-                        {isLoading ? "…" : pagesConsidered.length}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-2 text-xs font-medium text-ink-600">Pages considered</div>
-                    {isLoading ? (
-                      <Spinner label="Reading citations…" />
-                    ) : pagesConsidered.length === 0 ? (
-                      <div className="text-xs text-ink-400">
-                        No specific pages were cited for this document's obligations.
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {pagesConsidered.map((p) => (
-                          <span
-                            key={p}
-                            className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-700"
-                          >
-                            p. {p}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
                   <div>
                     <div className="mb-2 text-xs font-medium text-ink-600">Coverage</div>
                     {coverageLoading ? (
