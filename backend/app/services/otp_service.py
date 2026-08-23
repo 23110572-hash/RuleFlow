@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import random
 import time
-import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -75,20 +74,9 @@ def clear_verification(email: str) -> None:
 
 
 def _send_email(to_email: str, otp_code: str) -> None:
-    """Send OTP email via Gmail SMTP relay using httpx (works on Render where
-    direct SMTP is blocked). Uses Google's SMTP relay over HTTPS via the
-    smtplib-free approach with the Gmail API send endpoint."""
+    """Send OTP email via Resend HTTP API (works on Render where SMTP is blocked).
+    Falls back to direct SMTP if Resend key not configured."""
     sender_email = settings.smtp_email
-    sender_password = settings.smtp_password.replace(" ", "")
-
-    if not sender_email or not sender_password:
-        raise RuntimeError("SMTP credentials not configured (SMTP_EMAIL / SMTP_PASSWORD env vars)")
-
-    # Build the email message
-    msg = MIMEMultipart("alternative")
-    msg["From"] = f"RuleFlow <{sender_email}>"
-    msg["To"] = to_email
-    msg["Subject"] = f"RuleFlow - Your Verification Code: {otp_code}"
 
     html = f"""
     <html>
@@ -110,52 +98,34 @@ def _send_email(to_email: str, otp_code: str) -> None:
     </html>
     """
 
-    text = f"Your RuleFlow verification code is: {otp_code}\n\nThis code expires in 5 minutes."
+    # Use Resend HTTP API (works on Render - no SMTP needed)
+    resend_key = settings.resend_api_key
+    if resend_key:
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from": f"RuleFlow <{settings.resend_from_email}>",
+                "to": [to_email],
+                "subject": f"RuleFlow - Your Verification Code: {otp_code}",
+                "html": html,
+            },
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return
+        raise RuntimeError(f"Resend API error ({resp.status_code}): {resp.text}")
 
-    msg.attach(MIMEText(text, "plain"))
+    # Fallback: direct SMTP (works locally, blocked on Render free tier)
+    import smtplib
+    sender_password = settings.smtp_password.replace(" ", "")
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"RuleFlow <{sender_email}>"
+    msg["To"] = to_email
+    msg["Subject"] = f"RuleFlow - Your Verification Code: {otp_code}"
+    msg.attach(MIMEText(f"Your RuleFlow verification code is: {otp_code}\n\nExpires in 5 minutes.", "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-
-    # Use Gmail's authenticated SMTP submission via smtplib over a CONNECT tunnel
-    # Since Render blocks direct SMTP, we use httpx to submit via Gmail API-style
-    # Actually, use the alternative: submit via Google's OAuth-less SMTP relay
-    # through an HTTP proxy approach. The simplest working approach on Render
-    # is to use a third-party email relay API.
-    #
-    # We'll use the smtp2go or similar free relay, but the FASTEST approach
-    # that requires NO signup is to use Python's built-in email via subprocess curl.
-    # 
-    # Best approach: Use Gmail API directly with the app password via basic auth
-    # Gmail doesn't expose a REST endpoint for app passwords, so we use an
-    # alternative: send via a free transactional email API.
-    #
-    # FINAL APPROACH: Use smtplib with IPv4 forced (Render's issue is IPv6)
-    import smtplib
-    import socket
-
-    # Force IPv4 - Render's network may not support IPv6 to external hosts
-    original_getaddrinfo = socket.getaddrinfo
-
-    def ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-
-    try:
-        socket.getaddrinfo = ipv4_only_getaddrinfo
-
-        # Try SSL (port 465)
-        try:
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-                server.login(sender_email, sender_password)
-                server.sendmail(sender_email, to_email, msg.as_string())
-                return
-        except Exception as e1:
-            print(f"SMTP_SSL failed: {e1}")
-
-        # Try STARTTLS (port 587)
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, to_email, msg.as_string())
-    finally:
-        socket.getaddrinfo = original_getaddrinfo
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, to_email, msg.as_string())

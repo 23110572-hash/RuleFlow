@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     smtp_email: str = "krishnaagrawal0706@gmail.com"
     smtp_password: str = "cdlhnjvqidsosfvm"
 
+    # Resend API (HTTPS email - works on Render where SMTP is blocked)
+    resend_api_key: str = ""
+    resend_from_email: str = "otp@ruleflow.dev"
+
     # Storage
     storage_dir: str = "./storage"
 
