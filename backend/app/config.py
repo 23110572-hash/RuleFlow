@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     # LLM (via LiteLLM). Model is swappable behind LiteLLM.
     groq_api_key: str = ""
     openrouter_api_key: str = ""
-    llm_model: str = "groq/llama-3.3-70b-versatile"
+    # Flash-Lite is the low-latency member of the 2.5 family and ~5x cheaper on
+    # output than full 2.5 Flash. Extraction is "quote this clause", not deep
+    # reasoning, and the citation kernel verifies every quote regardless of
+    # model — so latency and price are the right things to optimise here.
+    llm_model: str = "openrouter/google/gemini-2.5-flash-lite"
     llm_temperature: float = 0.0
 
     # An explicit output cap is REQUIRED for OpenRouter: with no max_tokens it
@@ -28,9 +32,18 @@ class Settings(BaseSettings):
     # against the key's remaining budget and rejects the call with HTTP 402
     # ("requires more credits, or fewer max_tokens") even when credit remains.
     # Extraction responses are small JSON objects, so a tight cap is correct.
-    llm_max_tokens: int = 1500
+    # 2000 (not 1500) because the extraction call now also returns applicability.
+    llm_max_tokens: int = 2000
     llm_timeout: int = 90
     llm_num_retries: int = 2
+
+    # How many clause extractions may be in flight at once. Clauses are
+    # independent, so this is the main lever on ingest wall-clock time: a
+    # 500-clause circular is hundreds of round-trips, and running them serially
+    # takes tens of minutes. Keep it modest — providers rate-limit per key
+    # (HTTP 429), and on OpenRouter the allowance scales with account credit.
+    # Raise it if ingest is slow and you see no 429s; lower it if you do.
+    llm_concurrency: int = 6
     # Fall back to Groq when the primary (OpenRouter) call fails and a Groq key
     # is configured, so one provider being out of credit does not kill a run.
     llm_fallback_model: str = "groq/llama-3.3-70b-versatile"

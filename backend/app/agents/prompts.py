@@ -19,6 +19,18 @@ Hard rules:
 - Extract structured fields ONLY when explicitly present in the clause text.
 - If the clause imposes no obligation (definitions, headings, recitals), return an empty list.
 
+Applicability — WHO the obligation binds:
+- Categories include (non-exhaustive): stockbroker, depository, depository_participant,
+  asset_management_company, registrar_transfer_agent, investment_adviser,
+  market_infrastructure_institution, clearing_corporation, stock_exchange.
+- Fill "applies_to" ONLY when the clause text itself (or the stated document category) names the
+  bound entity explicitly. Handle multi-hop scope (e.g. a Qualified Stock Broker that is also a
+  Depository Participant) by listing every category named.
+- If the scope is generic, unclear, or you would be guessing, set "applicability_ambiguous": true
+  and return an EMPTY "applies_to" list. An empty list means "binds every entity", which is the
+  SAFE default. Never guess a narrow category: a wrong narrow category hides the obligation from
+  a firm that is legally required to comply with it.
+
 Return JSON: {"obligations": [
   {
     "verbatim_text": "<exact quote from the clause>",
@@ -26,7 +38,9 @@ Return JSON: {"obligations": [
     "modality": "shall" | "may" | "best_judgment",
     "trigger_condition": "<when it applies, or null>",
     "deadline_or_periodicity": "<e.g. 'monthly', 'within 7 days', 'by end of day', or null>",
-    "threshold": "<e.g. '>= 20%', '8 years', or null>"
+    "threshold": "<e.g. '>= 20%', '8 years', or null>",
+    "applies_to": [{"category": "<cat>", "tier": "<tier or null>"}],
+    "applicability_ambiguous": true | false
   }
 ]}"""
 

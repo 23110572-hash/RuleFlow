@@ -16,7 +16,10 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: openrouter/openai/gpt-4o-mini
+        value: openrouter/google/gemini-2.5-flash-lite
+      # Concurrent clause extractions. Lower this if the provider returns 429s.
+      - key: LLM_CONCURRENCY
+        value: "6"
       - key: CORS_ORIGINS
         value: "*"
       - key: EMAIL_RELAY_URL

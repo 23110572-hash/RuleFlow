@@ -36,6 +36,13 @@ class ProposedObligation:
     citation_fidelity: float
     status: str  # verified | flagged
     reason: str = ""
+    #: Which intermediary categories the obligation binds, as
+    #: ``[{"category": ..., "tier": ...}]``. An EMPTY list is meaningful: it
+    #: means "binds every category", which is how the compliance layer treats a
+    #: generic obligation. We deliberately leave it empty whenever the model is
+    #: unsure, because a wrongly narrowed category would hide the obligation
+    #: from a firm that must comply with it.
+    applies_to: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +57,7 @@ class ProposedObligation:
             "citation_fidelity": round(self.citation_fidelity, 4),
             "status": self.status,
             "reason": self.reason,
+            "applies_to": self.applies_to,
         }
 
 
@@ -96,18 +104,27 @@ def extract_from_clause(
     clause: ClauseUnit,
     source_hash: str,
     threshold: float | None = None,
+    document_category: str | None = None,
 ) -> list[ProposedObligation]:
-    """Extract + verify obligations from a single clause."""
+    """Extract + verify obligations from a single clause.
+
+    One LLM call per clause (plus at most one self-correction retry). The call
+    also returns applicability, so there is no second enrichment pass over the
+    obligations — see ``_norm_applies_to`` for the conservative policy applied
+    to the model's answer.
+    """
     threshold = threshold if threshold is not None else settings.citation_fidelity_threshold
     llm = get_llm()
     clause_text = document_text[clause.char_start:clause.char_end].strip()
     if len(clause_text) < 12:
         return []
 
-    payload = llm.complete_json(
-        EXTRACTION_SYSTEM,
-        f"Clause path: {clause.clause_path}\nClause text:\n\"\"\"\n{clause_text}\n\"\"\"",
+    user_prompt = (
+        f"Document category: {document_category or 'unknown'}\n"
+        f"Clause path: {clause.clause_path}\n"
+        f"Clause text:\n\"\"\"\n{clause_text}\n\"\"\""
     )
+    payload = llm.complete_json(EXTRACTION_SYSTEM, user_prompt)
     raw_obs = (payload or {}).get("obligations", []) if isinstance(payload, dict) else []
 
     results: list[ProposedObligation] = []
@@ -123,7 +140,7 @@ def extract_from_clause(
             retry = llm.complete_json(
                 EXTRACTION_SYSTEM,
                 (
-                    f"Clause path: {clause.clause_path}\nClause text:\n\"\"\"\n{clause_text}\n\"\"\"\n\n"
+                    f"{user_prompt}\n\n"
                     f"Your previous quote was not found verbatim in the clause: {quote!r}. "
                     "Re-extract, quoting EXACTLY the characters that appear in the clause text."
                 ),
@@ -156,6 +173,7 @@ def extract_from_clause(
                 citation_fidelity=check.fidelity,
                 status=status,
                 reason=check.reason,
+                applies_to=_norm_applies_to(raw),
             )
         )
     return _dedup_obligations(results)
@@ -164,6 +182,56 @@ def extract_from_clause(
 def _norm_modality(value: str | None) -> str:
     v = (value or "shall").strip().lower()
     return v if v in {"shall", "may", "best_judgment"} else "shall"
+
+
+#: Upper bound on categories kept for one obligation. A longer list is the model
+#: listing every category it can think of, which is noise, not scope.
+_MAX_APPLIES_TO = 8
+
+
+def _norm_applies_to(raw: dict) -> list[dict]:
+    """Normalise the model's applicability answer, biased towards safety.
+
+    The compliance layer reads an EMPTY list as "this obligation binds every
+    category" and a populated list as a hard filter. A filter built on a guess
+    would hide obligations from firms that must comply, so we only keep the
+    model's list when it committed to it:
+
+    - ``applicability_ambiguous`` is truthy  -> [] (treated as: binds everyone)
+    - a category of "all"/"any"              -> [] (same meaning, canonical form)
+    - anything unparseable or empty          -> [] (binds everyone)
+    """
+    if not isinstance(raw, dict):
+        return []
+    if raw.get("applicability_ambiguous"):
+        return []
+
+    entries = raw.get("applies_to")
+    if not isinstance(entries, list):
+        return []
+
+    normalized: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        category = str(entry.get("category") or "").strip().lower()
+        if not category:
+            continue
+        # "all"/"any" is exactly what an empty list already means downstream.
+        if category in {"all", "any", "unknown", "n/a", "none"}:
+            return []
+        tier_raw = entry.get("tier")
+        tier = str(tier_raw).strip() if tier_raw not in (None, "") else None
+        key = (category, tier or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append({"category": category, "tier": tier})
+
+    if len(normalized) > _MAX_APPLIES_TO:
+        return []
+    return normalized
 
 
 def _dedup_obligations(obs: list[ProposedObligation]) -> list[ProposedObligation]:

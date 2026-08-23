@@ -47,7 +47,10 @@ def _persist_extraction(
             trigger_condition=po.trigger_condition,
             deadline_or_periodicity=po.deadline_or_periodicity,
             threshold=po.threshold,
-            applies_to=getattr(po, "applies_to", []) or [],
+            # Empty list is meaningful: the compliance layer reads it as
+            # "binds every category". The extraction agent leaves it empty
+            # whenever applicability was ambiguous.
+            applies_to=po.applies_to or [],
             citation=po.citation,
             citation_fidelity=po.citation_fidelity,
             status="verified" if po.status == "verified" else "flagged",
