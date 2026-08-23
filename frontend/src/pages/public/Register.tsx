@@ -109,8 +109,8 @@ export default function Register() {
                 <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
                 <p className="mt-1 text-sm text-ink-500">Start with your details. We will verify your email.</p>
                 <div className="mt-6 space-y-3">
-                  <Field label="Full name"><input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Asha Menon" /></Field>
-                  <Field label="Work email"><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@firm.in" /></Field>
+                  <Field label="Full name"><input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your name" /></Field>
+                  <Field label="Email"><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email id" /></Field>
                   <Field label="Password"><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" /></Field>
                 </div>
                 {error && <ErrorLine msg={error} />}
