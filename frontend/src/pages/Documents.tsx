@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ChevronDown, FileText, GitPullRequest, UploadCloud } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, FileText, GitPullRequest, UploadCloud } from "lucide-react";
 import { api, Coverage, DocumentT, IngestionProgress, Obligation } from "@/lib/api";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui";
 import { AgentFlow, FlowResult } from "@/components/AgentFlow";
@@ -215,6 +215,20 @@ function DocStrip({ doc }: { doc: DocumentT }) {
     staleTime: 60_000,
   });
 
+  // Coverage certificate: what was captured, what is not applicable, and the
+  // duty sentences still waiting on a human. A 404 just means no report exists.
+  const {
+    data: coverage,
+    isLoading: coverageLoading,
+    isError: coverageError,
+  } = useQuery({
+    queryKey: ["document-coverage", doc.id],
+    queryFn: () => api.coverage(doc.id),
+    enabled: open && !failed,
+    retry: false,
+    staleTime: 60_000,
+  });
+
   // Distinct pages RuleFlow actually pulled obligations from, in reading order.
   const pagesConsidered = useMemo(() => {
     const seen = new Set<number>();
@@ -306,6 +320,56 @@ function DocStrip({ doc }: { doc: DocumentT }) {
                     )}
                   </div>
 
+                  <div>
+                    <div className="mb-2 text-xs font-medium text-ink-600">Coverage</div>
+                    {coverageLoading ? (
+                      <Spinner label="Checking coverage…" />
+                    ) : coverageError || !coverage ? (
+                      <div className="text-xs text-ink-400">
+                        No coverage report was generated for this document.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <CoverageStat label="Duty signals" value={coverage.signals_total} />
+                          <CoverageStat label="Captured" value={coverage.extracted} tone="emerald" />
+                          <CoverageStat label="Not applicable" value={coverage.not_applicable} />
+                          <CoverageStat
+                            label="Needs review"
+                            value={coverage.unaccounted}
+                            tone={coverage.unaccounted > 0 ? "amber" : "emerald"}
+                          />
+                        </div>
+
+                        {coverage.unaccounted_signals.length > 0 ? (
+                          <div>
+                            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              Needs human verification ({coverage.unaccounted_signals.length})
+                            </div>
+                            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                              {coverage.unaccounted_signals.map((s, i) => (
+                                <div key={i} className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+                                  <div className="text-xs leading-relaxed text-ink-700">{s.sentence}</div>
+                                  {s.phrase && (
+                                    <div className="mt-1 text-[11px] font-medium text-amber-700">
+                                      Trigger phrase: “{s.phrase}”
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Every duty sentence was accounted for. Nothing is waiting on human review.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {doc.obligation_count === 0 && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
                       No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
@@ -321,3 +385,22 @@ function DocStrip({ doc }: { doc: DocumentT }) {
   );
 }
 
+
+function CoverageStat({
+  label,
+  value,
+  tone = "ink",
+}: {
+  label: string;
+  value: number;
+  tone?: "ink" | "emerald" | "amber";
+}) {
+  const toneCls =
+    tone === "emerald" ? "text-emerald-700" : tone === "amber" ? "text-amber-700" : "text-ink-900";
+  return (
+    <div className="rounded-xl bg-ink-50 px-3 py-2.5">
+      <div className="label">{label}</div>
+      <div className={cn("mt-0.5 text-lg font-semibold", toneCls)}>{value}</div>
+    </div>
+  );
+}
