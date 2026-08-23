@@ -14,8 +14,8 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # Database
-    database_url: str = "postgresql+psycopg://neondb_owner:npg_RZLn0roq7JTF@ep-green-hat-adnobjle-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+    # Database (production must set DATABASE_URL in the environment)
+    database_url: str = "sqlite:///./ruleflow.db"
 
     # LLM (via LiteLLM). Model is swappable behind LiteLLM.
     groq_api_key: str = ""
@@ -44,14 +44,17 @@ class Settings(BaseSettings):
     citation_fidelity_threshold: float = 0.95
 
     # Auth
-    secret_key: str = "dev-secret-change-in-production"
+    secret_key: str = "development-only-change-me"
     token_expiry_minutes: int = 60 * 24 * 7  # 7 days
 
-    # Email OTP (Gmail SMTP - same config as SkillSwap)
+    # Email OTP. Render uses the HTTPS relay; direct SMTP remains available
+    # for local/other environments where outbound SMTP is permitted.
+    email_relay_url: str = ""
+    email_relay_secret: str = ""
     smtp_server: str = "smtp.gmail.com"
     smtp_port: int = 465
-    smtp_user: str = "krishnaagrawal0706@gmail.com"
-    smtp_password: str = "yxjovzacuabanpbn"
+    smtp_user: str = ""
+    smtp_password: str = ""
 
     # Storage
     storage_dir: str = "./storage"

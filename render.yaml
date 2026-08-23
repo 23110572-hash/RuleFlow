@@ -5,8 +5,12 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
       - key: DATABASE_URL
-        value: postgresql+psycopg://neondb_owner:npg_RZLn0roq7JTF@ep-green-hat-adnobjle-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
       - key: OPENROUTER_API_KEY
         sync: false
       - key: GROQ_API_KEY
@@ -15,11 +19,7 @@ services:
         value: openrouter/openai/gpt-4o-mini
       - key: CORS_ORIGINS
         value: "*"
-      - key: SMTP_SERVER
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "465"
-      - key: SMTP_USER
-        value: krishnaagrawal0706@gmail.com
-      - key: SMTP_PASSWORD
-        value: yxjovzacuabanpbn
+      - key: EMAIL_RELAY_URL
+        value: https://rule-flow.vercel.app/api/send-otp-email
+      - key: EMAIL_RELAY_SECRET
+        sync: false
