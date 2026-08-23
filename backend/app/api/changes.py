@@ -5,9 +5,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_firm_data_source
+from app.api.deps import get_current_firm, get_current_user, require_firm_data_source, verify_firm_access
 from app.db.base import get_db
-from app.db.models import ChangeEvent, ChangeRequest, Document, Obligation
+from app.db.models import ChangeEvent, ChangeRequest, Document, Firm, Obligation, User
 from app.services import change_service
 
 router = APIRouter(tags=["changes"])
@@ -73,7 +73,7 @@ def _serialise_change_request(db: Session, cr: ChangeRequest) -> dict:
 
 
 @router.post("/documents/{from_id}/diff/{to_id}")
-def diff(from_id: str, to_id: str, db: Session = Depends(get_db)):
+def diff(from_id: str, to_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Deterministic canonical diff between two document versions."""
     return change_service.diff_documents(db, from_id, to_id)
 
@@ -92,7 +92,7 @@ def change_impact(
 
 
 @router.get("/firms/{firm_id}/database-rules")
-def get_database_rules(firm_id: str, db: Session = Depends(get_db)):
+def get_database_rules(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     """The rules this firm already follows.
 
     Read from the firm's adopted controls plus its connected database (the LLM
@@ -104,7 +104,7 @@ def get_database_rules(firm_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/firms/{firm_id}/change-requests")
-def list_change_requests(firm_id: str, status: str | None = None, db: Session = Depends(get_db)):
+def list_change_requests(firm_id: str, status: str | None = None, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     change_service.cleanup_spurious_change_requests(db, firm_id)
     stmt = select(ChangeRequest).where(ChangeRequest.firm_id == firm_id)
     if status:
@@ -153,9 +153,16 @@ def decide(
     decision: str = Body(..., embed=True),
     approver: str = Body("compliance_officer", embed=True),
     note: str = Body("", embed=True),
+    firm: Firm = Depends(get_current_firm),
     db: Session = Depends(get_db),
 ):
     """HIL decision on a change request: approve | escalate | reject."""
+    # Verify the change request belongs to this firm
+    cr_check = db.get(ChangeRequest, cr_id)
+    if not cr_check:
+        raise HTTPException(404, "change request not found")
+    if cr_check.firm_id != firm.id:
+        raise HTTPException(403, "access denied: change request belongs to another firm")
     try:
         cr = change_service.decide_change_request(db, cr_id, decision, approver, note)
     except ValueError as e:
@@ -164,8 +171,14 @@ def decide(
 
 
 @router.post("/change-requests/{cr_id}/applied")
-def applied(cr_id: str, actor: str = Body("compliance_officer", embed=True), db: Session = Depends(get_db)):
+def applied(cr_id: str, actor: str = Body("compliance_officer", embed=True), firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
     """Firm marks the approved change as applied in their own systems."""
+    # Verify the change request belongs to this firm
+    cr_check = db.get(ChangeRequest, cr_id)
+    if not cr_check:
+        raise HTTPException(404, "change request not found")
+    if cr_check.firm_id != firm.id:
+        raise HTTPException(403, "access denied: change request belongs to another firm")
     try:
         cr = change_service.mark_applied(db, cr_id, actor)
     except ValueError as e:

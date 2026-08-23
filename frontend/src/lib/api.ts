@@ -130,8 +130,8 @@ export const api = {
   // inspector + audit
   runInspection: (firmId: string, theme: string) =>
     request<InspectionReport>(`/firms/${firmId}/inspector/run`, { method: "POST", body: JSON.stringify({ theme }) }),
-  audit: (firmId: string) => request<AuditEntry[]>(`/audit?firm_id=${firmId}`),
-  verifyAudit: (firmId: string) => request<{ intact: boolean }>(`/audit/verify?firm_id=${firmId}`),
+  audit: (firmId: string) => request<AuditEntry[]>(`/audit`),
+  verifyAudit: (firmId: string) => request<{ intact: boolean }>(`/audit/verify`),
 };
 
 // ---- types ----

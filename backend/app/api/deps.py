@@ -33,12 +33,19 @@ def get_current_firm(user: User = Depends(get_current_user), db: Session = Depen
     return firm
 
 
-def require_firm_data_source(firm_id: str, db: Session = Depends(get_db)) -> None:
+def verify_firm_access(firm_id: str, firm: Firm = Depends(get_current_firm)) -> Firm:
+    """Ensure the authenticated user's firm matches the firm_id in the URL path.
+    Returns the firm on success, raises 403 if there's a mismatch."""
+    if firm.id != firm_id:
+        raise HTTPException(403, "access denied: you can only access your own firm's data")
+    return firm
+
+
+def require_firm_data_source(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)) -> None:
     """Gate for features that need the firm's own database (compliance
     evaluation, self-inspection, operational-impact edits). Returns 403 when no
     data source is connected, so a firm that skipped connection at signup is
-    blocked until it connects one from Settings. `firm_id` is taken from the
-    route path."""
+    blocked until it connects one from Settings. Also verifies firm ownership."""
     from app.services import datasource_service
 
     if not datasource_service.firm_has_data_source(db, firm_id):

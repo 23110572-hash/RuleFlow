@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_firm, verify_firm_access
 from app.db.base import get_db
 from app.db.models import Control, Evidence, Firm
 from app.kernel.hashing import sha256_hex
@@ -24,13 +25,14 @@ router = APIRouter(prefix="/firms", tags=["firms"])
 
 
 @router.get("", response_model=list[FirmOut])
-def list_firms(db: Session = Depends(get_db)):
-    firms = db.execute(select(Firm).order_by(Firm.recorded_at)).scalars().all()
-    return [FirmOut(id=f.id, name=f.name, category=f.category, tier=f.tier, profile=f.profile or {}) for f in firms]
+def list_firms(firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
+    """Return only the authenticated user's firm (not all firms in the system)."""
+    return [FirmOut(id=firm.id, name=firm.name, category=firm.category, tier=firm.tier, profile=firm.profile or {})]
 
 
 @router.post("", response_model=FirmOut)
 def create_firm(body: FirmIn, db: Session = Depends(get_db)):
+    """Create a new firm. Note: registration flow in auth.py is the normal path."""
     firm = Firm(name=body.name, category=body.category, tier=body.tier, profile=body.profile)
     db.add(firm)
     db.flush()
@@ -41,17 +43,14 @@ def create_firm(body: FirmIn, db: Session = Depends(get_db)):
 
 
 @router.get("/{firm_id}", response_model=FirmOut)
-def get_firm(firm_id: str, db: Session = Depends(get_db)):
-    f = db.get(Firm, firm_id)
-    if not f:
-        raise HTTPException(404, "firm not found")
-    return FirmOut(id=f.id, name=f.name, category=f.category, tier=f.tier, profile=f.profile or {})
+def get_firm(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
+    return FirmOut(id=firm.id, name=firm.name, category=firm.category, tier=firm.tier, profile=firm.profile or {})
 
 
 # ---- controls ----
 
 @router.get("/{firm_id}/controls", response_model=list[ControlOut])
-def list_controls(firm_id: str, db: Session = Depends(get_db)):
+def list_controls(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     controls = db.execute(select(Control).where(Control.firm_id == firm_id)).scalars().all()
     return [
         ControlOut(
@@ -64,9 +63,7 @@ def list_controls(firm_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{firm_id}/controls", response_model=ControlOut)
-def create_control(firm_id: str, body: ControlIn, db: Session = Depends(get_db)):
-    if not db.get(Firm, firm_id):
-        raise HTTPException(404, "firm not found")
+def create_control(firm_id: str, body: ControlIn, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     c = Control(
         firm_id=firm_id, obligation_ids=body.obligation_ids, description=body.description,
         type=body.type, owner_role=body.owner_role, frequency=body.frequency,
@@ -85,7 +82,7 @@ def create_control(firm_id: str, body: ControlIn, db: Session = Depends(get_db))
 # ---- evidence ----
 
 @router.get("/{firm_id}/evidence", response_model=list[EvidenceOut])
-def list_evidence(firm_id: str, db: Session = Depends(get_db)):
+def list_evidence(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     rows = db.execute(select(Evidence).where(Evidence.firm_id == firm_id)).scalars().all()
     return [
         EvidenceOut(
@@ -97,9 +94,7 @@ def list_evidence(firm_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{firm_id}/evidence", response_model=EvidenceOut)
-def add_evidence(firm_id: str, body: EvidenceIn, db: Session = Depends(get_db)):
-    if not db.get(Firm, firm_id):
-        raise HTTPException(404, "firm not found")
+def add_evidence(firm_id: str, body: EvidenceIn, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     captured = body.captured_at or datetime.now(timezone.utc)
     ehash = sha256_hex(f"{firm_id}{body.control_id}{body.description}{captured.isoformat()}")
     e = Evidence(
@@ -122,12 +117,10 @@ def add_evidence(firm_id: str, body: EvidenceIn, db: Session = Depends(get_db)):
 def check_database_against_document(
     firm_id: str,
     document_id: str | None = None,
+    firm: Firm = Depends(verify_firm_access),
     db: Session = Depends(get_db),
 ):
     from app.services import change_service
 
     drafts = change_service.scan_firm_database_for_changes(db, firm_id, document_id)
     return {"action_items_created": len(drafts), "drafts": drafts}
-
-
-

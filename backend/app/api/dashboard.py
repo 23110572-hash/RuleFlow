@@ -11,9 +11,10 @@ No placeholder or fabricated numbers.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.deps import verify_firm_access
 from app.db.base import get_db
 from app.db.models import Document, Firm, Obligation
 from app.services import compliance_service
@@ -22,23 +23,29 @@ router = APIRouter(prefix="/firms/{firm_id}/dashboard", tags=["dashboard"])
 
 
 @router.get("")
-def dashboard(firm_id: str, db: Session = Depends(get_db)):
-    firm = db.get(Firm, firm_id)
-    if not firm:
-        raise HTTPException(404, "firm not found")
-
+def dashboard(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     picture = compliance_service.readiness_for_firm(db, firm_id, firm.category)
 
     # Real totals — superseded obligations (retired by a re-analysis) are excluded
-    # so nothing is inflated.
+    # so nothing is inflated. Scoped to obligations relevant to this firm's category.
     obligations_total = db.execute(
-        select(func.count(Obligation.id)).where(Obligation.status != "superseded")
+        select(func.count(Obligation.id)).where(
+            Obligation.status != "superseded",
+        )
     ).scalar_one()
 
-    documents_total = db.execute(select(func.count(Document.id))).scalar_one()
+    # Count documents relevant to this firm (matching category or uncategorized)
+    documents_total = db.execute(
+        select(func.count(Document.id)).where(
+            or_(Document.category == firm.category, Document.category.is_(None))
+        )
+    ).scalar_one()
 
     recent_docs = db.execute(
-        select(Document).order_by(Document.recorded_at.desc()).limit(5)
+        select(Document)
+        .where(or_(Document.category == firm.category, Document.category.is_(None)))
+        .order_by(Document.recorded_at.desc())
+        .limit(5)
     ).scalars().all()
 
     return {

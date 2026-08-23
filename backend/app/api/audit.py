@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_firm
 from app.db.base import get_db
-from app.db.models import AuditEntry
+from app.db.models import AuditEntry, Firm
 from app.services import audit as audit_service
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -14,11 +15,12 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 @router.get("")
 def list_entries(
-    firm_id: str | None = Query(None),
+    firm: Firm = Depends(get_current_firm),
     limit: int = Query(200, le=1000),
     db: Session = Depends(get_db),
 ):
-    stmt = select(AuditEntry).where(AuditEntry.firm_id == firm_id)
+    """Return audit entries scoped to the authenticated user's firm."""
+    stmt = select(AuditEntry).where(AuditEntry.firm_id == firm.id)
     stmt = stmt.order_by(AuditEntry.recorded_at.desc()).limit(limit)
     rows = db.execute(stmt).scalars().all()
     return [
@@ -31,6 +33,7 @@ def list_entries(
 
 
 @router.get("/verify")
-def verify_chain(firm_id: str | None = Query(None), db: Session = Depends(get_db)):
-    ok, broken = audit_service.verify(db, firm_id)
+def verify_chain(firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
+    """Verify hash chain integrity for the authenticated user's firm."""
+    ok, broken = audit_service.verify(db, firm.id)
     return {"intact": ok, "first_broken_index": broken}

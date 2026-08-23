@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_firm_data_source
+from app.api.deps import require_firm_data_source, verify_firm_access
 from app.db.base import get_db
 from app.db.models import Firm, Gap
 from app.services import compliance_service

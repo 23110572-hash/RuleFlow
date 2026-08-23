@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.agents.reasoning import explain_obligation, propose_control_for_obligation
-from app.api.deps import get_current_firm
+from app.api.deps import get_current_firm, get_current_user
 from app.db.base import get_db
-from app.db.models import Control, Document, Firm, Obligation, ObligationTest
+from app.db.models import Control, Document, Firm, Obligation, ObligationTest, User
 from app.schemas.models import ObligationOut
 from app.services import audit, datasource_service
 
@@ -52,6 +52,7 @@ def list_obligations(
     ),
     modality: str | None = None,
     status: str | None = None,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     stmt = select(Obligation)
@@ -282,7 +283,7 @@ def decide_obligation(
 
 
 @router.get("/{obligation_id}")
-def get_obligation(obligation_id: str, db: Session = Depends(get_db)):
+def get_obligation(obligation_id: str, firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
     o = db.get(Obligation, obligation_id)
     if not o:
         raise HTTPException(404, "obligation not found")
@@ -290,8 +291,8 @@ def get_obligation(obligation_id: str, db: Session = Depends(get_db)):
     test = db.execute(
         select(ObligationTest).where(ObligationTest.obligation_id == o.id)
     ).scalars().first()
-    # firm controls linking this obligation
-    controls = db.execute(select(Control)).scalars().all()
+    # Only show controls belonging to the authenticated user's firm
+    controls = db.execute(select(Control).where(Control.firm_id == firm.id)).scalars().all()
     linked = [
         {"id": c.id, "firm_id": c.firm_id, "description": c.description, "frequency": c.frequency}
         for c in controls
@@ -312,7 +313,7 @@ def get_obligation(obligation_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{obligation_id}/explain")
-def explain_obligation_endpoint(obligation_id: str, db: Session = Depends(get_db)):
+def explain_obligation_endpoint(obligation_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Explain an obligation in simple plain-English using AI with deterministic fallback."""
     o = db.get(Obligation, obligation_id)
     if not o:
