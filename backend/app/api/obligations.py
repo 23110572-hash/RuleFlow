@@ -52,26 +52,33 @@ def list_obligations(
     ),
     modality: str | None = None,
     status: str | None = None,
-    user: User = Depends(get_current_user),
+    firm: Firm = Depends(get_current_firm),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Obligation)
+    # Only show obligations from documents belonging to this firm
+    firm_doc_ids = db.execute(
+        select(Document.id).where(Document.firm_id == firm.id)
+    ).scalars().all()
+    if not firm_doc_ids:
+        return []
+
+    stmt = select(Obligation).where(Obligation.source_document_id.in_(firm_doc_ids))
     if document_id:
-        stmt = stmt.where(Obligation.source_document_id == document_id)
+        # Verify document belongs to this firm
+        if document_id not in firm_doc_ids:
+            return []
+        stmt = select(Obligation).where(Obligation.source_document_id == document_id)
     if modality:
         stmt = stmt.where(Obligation.modality == modality)
     if status:
         stmt = stmt.where(Obligation.status == status)
     else:
-        # Obligations retired by a re-analysis of the same document stay in the
-        # database for audit but must not appear in the live register.
         stmt = stmt.where(Obligation.status != "superseded")
     if q:
         like = f"%{q.lower()}%"
-        # Searching by circular number / document title has to resolve to
-        # document ids first, since those columns live on `documents`.
         doc_ids = db.execute(
             select(Document.id).where(
+                Document.firm_id == firm.id,
                 or_(
                     func_lower(Document.title).like(like),
                     func_lower(Document.circular_number).like(like),

@@ -1,13 +1,14 @@
-"""Documents API — ingest SEBI documents, view coverage certificates."""
+"""Documents API — ingest SEBI documents, view coverage certificates.
+Each document belongs to the firm that uploaded it. No sharing between accounts."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_firm
 from app.db.base import get_db
-from app.db.models import CoverageReport, Document, Obligation, User
+from app.db.models import CoverageReport, Document, Firm, Obligation
 from app.schemas.models import CoverageOut, DocumentOut, IngestTextIn
 from app.services import ingest_service
 
@@ -18,8 +19,6 @@ def _doc_out(db: Session, doc: Document) -> DocumentOut:
     ob_count = db.execute(
         select(func.count(Obligation.id)).where(
             Obligation.source_document_id == doc.id,
-            # Results of a previous analysis of the same document are retired,
-            # not deleted; they must not inflate the live count.
             Obligation.status != "superseded",
         )
     ).scalar_one()
@@ -52,16 +51,23 @@ def _doc_out(db: Session, doc: Document) -> DocumentOut:
 
 
 @router.get("", response_model=list[DocumentOut])
-def list_documents(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    docs = db.execute(select(Document).order_by(Document.recorded_at.desc())).scalars().all()
+def list_documents(firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
+    """List only documents belonging to the authenticated user's firm."""
+    docs = db.execute(
+        select(Document)
+        .where(Document.firm_id == firm.id)
+        .order_by(Document.recorded_at.desc())
+    ).scalars().all()
     return [_doc_out(db, d) for d in docs]
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
-def get_document(document_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_document(document_id: str, firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
     doc = db.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
+    if doc.firm_id and doc.firm_id != firm.id:
+        raise HTTPException(403, "access denied")
     return _doc_out(db, doc)
 
 
@@ -69,7 +75,7 @@ def get_document(document_id: str, user: User = Depends(get_current_user), db: S
 def ingest_document_text(
     body: IngestTextIn,
     max_clauses: int | None = Query(None, description="Cap clauses processed (cost control)"),
-    user: User = Depends(get_current_user),
+    firm: Firm = Depends(get_current_firm),
     db: Session = Depends(get_db),
 ):
     doc, _created = ingest_service.ingest_text(
@@ -82,6 +88,7 @@ def ingest_document_text(
         source_url=body.source_url,
         is_public=body.is_public,
         max_clauses=max_clauses,
+        firm_id=firm.id,
     )
     return _doc_out(db, doc)
 
@@ -93,12 +100,9 @@ def ingest_document_pdf(
     circular_number: str | None = Form(None),
     category: str | None = Form(None),
     max_clauses: int | None = Form(None),
-    user: User = Depends(get_current_user),
+    firm: Firm = Depends(get_current_firm),
     db: Session = Depends(get_db),
 ):
-    # Sync endpoint on purpose: FastAPI runs it in a worker thread, so the
-    # blocking DB round-trips here never freeze the async event loop (which
-    # would otherwise stall the progress polling and make the app feel dead).
     data = file.file.read()
     doc, created = ingest_service.ingest_pdf_async(
         db,
@@ -107,10 +111,9 @@ def ingest_document_pdf(
         circular_number=circular_number,
         category=category,
         max_clauses=max_clauses,
+        firm_id=firm.id,
     )
     if created:
-        # Freshly queued document: no obligations/coverage yet, so skip the
-        # extra count/coverage queries and respond immediately.
         return DocumentOut(
             id=doc.id,
             circular_number=doc.circular_number,
@@ -129,21 +132,19 @@ def ingest_document_pdf(
 
 
 @router.get("/{document_id}/progress")
-def get_progress(document_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Live progress for an in-flight analysis.
-
-    The in-memory tracker is per-process and is lost on restart/redeploy, so when
-    there is no entry we answer from the database instead of inventing a
-    successful-but-empty result (which is what used to make a finished 81
-    obligation document report "done, 0 obligations found").
-    """
+def get_progress(document_id: str, firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
+    """Live progress for an in-flight analysis."""
     from app.services import progress
+
+    # Verify ownership
+    doc = db.get(Document, document_id)
+    if doc and doc.firm_id and doc.firm_id != firm.id:
+        raise HTTPException(403, "access denied")
 
     prog = progress.get(document_id)
     if prog:
         return prog.to_dict()
 
-    doc = db.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
 
@@ -156,7 +157,6 @@ def get_progress(document_id: str, user: User = Depends(get_current_user), db: S
     if doc.status == "error":
         status, error = "error", "Analysis failed. Please upload the document again."
     elif doc.status in ("parsing", "extracting"):
-        # The worker died with the process; nothing is running any more.
         status, error = "error", "Analysis was interrupted (the server restarted). Please upload again."
     else:
         status, error = "done", None
@@ -175,7 +175,12 @@ def get_progress(document_id: str, user: User = Depends(get_current_user), db: S
 
 
 @router.get("/{document_id}/coverage", response_model=CoverageOut)
-def get_coverage(document_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_coverage(document_id: str, firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
+    # Verify ownership
+    doc = db.get(Document, document_id)
+    if doc and doc.firm_id and doc.firm_id != firm.id:
+        raise HTTPException(403, "access denied")
+
     cov = db.execute(
         select(CoverageReport).where(CoverageReport.document_id == document_id)
     ).scalars().first()

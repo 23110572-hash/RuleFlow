@@ -163,16 +163,27 @@ def ingest_text(
     is_public: bool = True,
     max_clauses: int | None = None,
     reuse: bool = True,
+    firm_id: str | None = None,
 ) -> tuple[Document, bool]:
     """Ingest raw text. Returns (document, created)."""
     chash = content_hash(text)
-    if reuse:
+
+    # Each firm gets its own copy — no sharing between accounts
+    if firm_id:
+        existing = db.execute(
+            select(Document).where(Document.content_hash == chash, Document.firm_id == firm_id)
+        ).scalars().first()
+    elif reuse:
         existing = find_by_hash(db, chash)
-        if existing:
-            return existing, False
+    else:
+        existing = None
+
+    if existing:
+        return existing, False
 
     parsed = parse_text(text)
     document = Document(
+        firm_id=firm_id,
         circular_number=circular_number,
         content_hash=chash,
         title=title,
@@ -233,6 +244,7 @@ def ingest_pdf(
     is_public: bool = True,
     max_clauses: int | None = None,
     reuse: bool = True,
+    firm_id: str | None = None,
 ) -> tuple[Document, bool]:
     parsed = parse_pdf_bytes(data)
     return ingest_text(
@@ -246,6 +258,7 @@ def ingest_pdf(
         is_public=is_public,
         max_clauses=max_clauses,
         reuse=reuse,
+        firm_id=firm_id,
     )
 
 
@@ -260,23 +273,25 @@ def ingest_pdf_async(
     source_url: str | None = None,
     is_public: bool = True,
     max_clauses: int | None = None,
+    firm_id: str | None = None,
 ) -> tuple[Document, bool]:
     """Queue a PDF for extraction. Parsing + LLM extraction run entirely in a
     background thread so the HTTP request returns immediately.
 
     Returns (document, created) where ``created`` is False when an identical
-    document (same content hash) was already ingested.
+    document (same content hash) was already ingested by this firm.
     """
     chash = hashlib.sha256(data).hexdigest()
 
-    # EVERY upload is analysed again — we never serve a cached result. Uploading
-    # a circular must always look and behave like a fresh analysis.
-    #
-    # When the same bytes were ingested before we reuse that Document row (so
-    # the register does not fill up with duplicate cards) and re-run the whole
-    # pipeline into it. The previous extraction is superseded, not deleted, so
-    # Controls/Gaps that already reference those obligation ids stay resolvable.
-    existing = find_by_hash(db, chash)
+    # Check for existing document scoped to THIS firm only
+    existing = None
+    if firm_id:
+        existing = db.execute(
+            select(Document).where(Document.content_hash == chash, Document.firm_id == firm_id)
+        ).scalars().first()
+    else:
+        existing = find_by_hash(db, chash)
+
     if existing:
         document = existing
         document.title = title or document.title
@@ -289,6 +304,7 @@ def ingest_pdf_async(
         document.status = "parsing"
     else:
         document = Document(
+            firm_id=firm_id,
             circular_number=circular_number,
             content_hash=chash,
             title=title,

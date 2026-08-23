@@ -11,7 +11,7 @@ No placeholder or fabricated numbers.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import verify_firm_access
@@ -26,24 +26,29 @@ router = APIRouter(prefix="/firms/{firm_id}/dashboard", tags=["dashboard"])
 def dashboard(firm_id: str, firm: Firm = Depends(verify_firm_access), db: Session = Depends(get_db)):
     picture = compliance_service.readiness_for_firm(db, firm_id, firm.category)
 
-    # Real totals — superseded obligations (retired by a re-analysis) are excluded
-    # so nothing is inflated. Scoped to obligations relevant to this firm's category.
-    obligations_total = db.execute(
-        select(func.count(Obligation.id)).where(
-            Obligation.status != "superseded",
-        )
-    ).scalar_one()
+    # Get document IDs belonging to this firm
+    firm_doc_ids = db.execute(
+        select(Document.id).where(Document.firm_id == firm.id)
+    ).scalars().all()
 
-    # Count documents relevant to this firm (matching category or uncategorized)
+    # Real totals — scoped to this firm's documents only
+    if firm_doc_ids:
+        obligations_total = db.execute(
+            select(func.count(Obligation.id)).where(
+                Obligation.source_document_id.in_(firm_doc_ids),
+                Obligation.status != "superseded",
+            )
+        ).scalar_one()
+    else:
+        obligations_total = 0
+
     documents_total = db.execute(
-        select(func.count(Document.id)).where(
-            or_(Document.category == firm.category, Document.category.is_(None))
-        )
+        select(func.count(Document.id)).where(Document.firm_id == firm.id)
     ).scalar_one()
 
     recent_docs = db.execute(
         select(Document)
-        .where(or_(Document.category == firm.category, Document.category.is_(None)))
+        .where(Document.firm_id == firm.id)
         .order_by(Document.recorded_at.desc())
         .limit(5)
     ).scalars().all()

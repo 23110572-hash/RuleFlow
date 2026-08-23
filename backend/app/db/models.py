@@ -37,6 +37,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    firm_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("firms.id"), index=True)
     circular_number: Mapped[str | None] = mapped_column(String(255), index=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     title: Mapped[str] = mapped_column(Text, default="")
