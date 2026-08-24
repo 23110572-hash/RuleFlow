@@ -316,6 +316,30 @@ def _obligation_applies_to_firm(obligation: Obligation, firm_category: str) -> b
     return firm_category.lower() in cats
 
 
+def _relevance(obligation: Obligation, firm_category: str) -> str:
+    """How strongly this obligation is addressed to a firm of ``firm_category``.
+
+        direct   applies_to names this category
+        generic  applies_to is empty or "all" — the clause binds everyone, and
+                 the extraction agent leaves it empty whenever scope was unclear
+        other    applies_to names only OTHER categories
+
+    Returned instead of dropping "other" rows. Filtering them out produced an
+    empty page whenever a firm's category differed from the regulation's - an
+    investment adviser reading the Stock Brokers Regulations saw nothing at all -
+    and, worse, silently withheld duties from a firm that might still owe them,
+    on the strength of one model's guess about scope. Demoting is recoverable;
+    hiding is not.
+    """
+    entries = obligation.applies_to or []
+    if not entries:
+        return "generic"
+    cats = {str(a.get("category", "")).lower() for a in entries}
+    if "all" in cats or "any" in cats:
+        return "generic"
+    return "direct" if firm_category.lower() in cats else "other"
+
+
 def suggest_obligations(
     db: Session,
     firm_id: str,
@@ -395,12 +419,16 @@ def suggest_obligations(
         for d in db.execute(select(Document).where(Document.id.in_(list(doc_ids)))).scalars().all()
     }
 
+    # Directly-addressed and generic duties first, then the ones aimed at other
+    # categories, each group still in document order.
+    rank = {"direct": 0, "generic": 1, "other": 2}
+    scored = [(_relevance(o, firm_category), o) for o in candidates]
+    # Stable sort, and candidates are already in document order, so each group
+    # keeps reading in the order the provisions appear.
+    scored.sort(key=lambda pair: rank[pair[0]])
+
     suggestions: list[dict] = []
-    for o in candidates:
-        # Category matching stays in Python: applies_to is a JSON column, so
-        # this cannot be expressed portably in SQL.
-        if not _obligation_applies_to_firm(o, firm_category):
-            continue
+    for relevance, o in scored:
         doc = docs.get(o.source_document_id)
         suggestions.append(
             {
@@ -412,6 +440,7 @@ def suggest_obligations(
                 "deadline_or_periodicity": o.deadline_or_periodicity,
                 "threshold": o.threshold,
                 "applies_to": o.applies_to or [],
+                "relevance": relevance,  # direct | generic | other
                 "citation": o.citation or {},
                 "citation_fidelity": o.citation_fidelity,
                 "status": o.status,

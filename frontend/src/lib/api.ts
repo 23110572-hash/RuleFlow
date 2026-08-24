@@ -227,6 +227,8 @@ export type Gap = { id?: string; obligation_id: string; reason: string; severity
 export type Evaluation = { results: TestResult[]; gaps: Gap[]; readiness: Readiness; total: number; as_of: string };
 export type Suggestion = {
   obligation_id: string;
+  /** direct = addressed to your category · generic = binds everyone · other = names another category */
+  relevance?: "direct" | "generic" | "other";
   clause_path: string;
   verbatim_text: string;
   normalized_statement: string;

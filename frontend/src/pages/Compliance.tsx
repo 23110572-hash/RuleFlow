@@ -258,18 +258,49 @@ function RegulationSuggestionGroup({
         </TButton>
       </div>
 
-      <div className="space-y-3">
-        <AnimatePresence initial={false}>
-          {items.map((s) => (
-            <SuggestionCard
-              key={s.obligation_id}
-              s={s}
-              busy={adoptingId === s.obligation_id || adoptingAll}
-              onAdopt={() => onAdopt(s.obligation_id)}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
+      {(() => {
+        // Split, rather than hide: obligations naming another category are
+        // demoted, never dropped. Filtering them out meant a firm whose category
+        // differed from the regulation's saw an empty page, and withheld duties
+        // it might still owe on the strength of one model's guess about scope.
+        const forYou = items.filter((s) => (s.relevance ?? "generic") !== "other");
+        const alsoMaybe = items.filter((s) => s.relevance === "other");
+
+        const render = (list: typeof items) => (
+          <div className="space-y-3">
+            <AnimatePresence initial={false}>
+              {list.map((s) => (
+                <SuggestionCard
+                  key={s.obligation_id}
+                  s={s}
+                  busy={adoptingId === s.obligation_id || adoptingAll}
+                  onAdopt={() => onAdopt(s.obligation_id)}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        );
+
+        return (
+          <>
+            {forYou.length > 0 && render(forYou)}
+
+            {alsoMaybe.length > 0 && (
+              <details className={forYou.length > 0 ? "mt-4" : ""}>
+                <summary className="cursor-pointer select-none rounded-xl bg-ink-50 px-3 py-2 text-xs font-medium text-ink-600 hover:bg-ink-100">
+                  May also apply ({alsoMaybe.length}) — addressed to other
+                  intermediary categories
+                </summary>
+                <p className="px-3 pt-2 text-[11px] text-ink-400">
+                  These name a different category in the regulation. Review them if your
+                  firm holds more than one registration.
+                </p>
+                <div className="mt-2">{render(alsoMaybe)}</div>
+              </details>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
