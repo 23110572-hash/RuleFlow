@@ -41,6 +41,7 @@ SIGNAL_PATTERNS: list[str] = [
 # Administrative boilerplate that ends every SEBI circular. These sentences
 # contain a duty word but impose no obligation on the intermediary, so counting
 # them as "missed obligations" permanently padded the checklist with noise.
+# Matched ANYWHERE near the duty word, because none of them begins with it.
 BOILERPLATE_PATTERNS: list[str] = [
     r"shall\s+come\s+into\s+force",
     r"shall\s+come\s+into\s+effect",
@@ -50,10 +51,46 @@ BOILERPLATE_PATTERNS: list[str] = [
     r"may\s+be\s+addressed\s+to",
     r"is\s+available\s+(at|on)\s+www\.sebi\.gov\.in",
     r"under\s+the\s+link\s+.?legal",
+    r"unless\s+the\s+context\s+otherwise\s+requires",
+]
+
+# Constructions that make the duty word part of a DEFINITION, a SCOPE LIMIT or a
+# SAVINGS clause rather than an instruction to anyone.
+#
+# These are anchored AT the duty word, never merely near it. Searching a window
+# suppressed a real obligation - "Every stock broker ... shall be liable to
+# furnish such information ... to the Board" - purely because a definition
+# happened to sit in the same paragraph. What decides the question is the grammar
+# immediately after the duty word.
+#
+# Structural, not topical: "shall mean" is here, "the Board shall" is not, since
+# the latter usually introduces something a firm must then follow.
+NON_DUTY_TAIL_PATTERNS: list[str] = [
+    # definitions and interpretation: fixing what a word denotes
+    r"shall\s+mean",
+    r"shall\s+have\s+the\s+(same\s+|respective\s+)?meanings?",
+    r"shall\s+be\s+construed",
+    r"shall\s+be\s+interpreted",
+    r"shall\s+also\s+include\s+amendment",
+    # scope limits: stating where the rules do NOT reach
+    r"shall\s+not\s+be\s+applicable\s+to",
+    r"shall\s+not\s+apply\s+to",
+    r"shall\s+mutatis\s+mutandis\s+apply",
+    # savings, repeal and validity: preserving the past, directing no one
+    r"shall\s+remain\s+valid",
+    r"shall\s+remain\s+unaffected",
+    r"shall\s+stand\s+repealed",
+    r"shall\s+be\s+deemed\s+to\s+have\s+been",
+    r"shall\s+be\s+deemed\s+to\s+be\s+a\s+reference",
+    r"shall\s+be\s+taken\s+as\s+(a\s+)?reference",
+    # Both orderings occur: "shall not be invalid" and, with the negation moved
+    # to the subject, "No regulations ... shall be invalid".
+    r"shall\s+(not\s+)?be\s+invalid",
 ]
 
 _SIGNAL_RE = re.compile("|".join(f"(?:{p})" for p in SIGNAL_PATTERNS), re.IGNORECASE)
 _BOILERPLATE_RE = re.compile("|".join(f"(?:{p})" for p in BOILERPLATE_PATTERNS), re.IGNORECASE)
+_NON_DUTY_TAIL_RE = re.compile("|".join(f"(?:{p})" for p in NON_DUTY_TAIL_PATTERNS), re.IGNORECASE)
 _SENT_BOUNDARY = re.compile(r"(?<=[.;:])\s+|\n+")
 
 # A REAL sentence end: closing punctuation, or a blank line. A single newline is
@@ -137,6 +174,30 @@ def _sentence_around(text: str, start: int, end: int) -> str:
     return text[max(0, left):right]
 
 
+#: How far either side of a duty word to look when deciding it is a definition,
+#: a scope limit or a savings clause. Wide enough to survive the PDF's line
+#: wrapping ("shall have the respective\nmeanings assigned"), deliberately narrow
+#: enough that a definition elsewhere in the paragraph cannot suppress a genuine
+#: duty sitting next to it.
+_CONTEXT_RADIUS = 180
+
+
+def _local_context(text: str, start: int, end: int) -> str:
+    """Whitespace-normalised text immediately around [start,end)."""
+    left = max(0, start - _CONTEXT_RADIUS)
+    right = min(len(text), end + _CONTEXT_RADIUS)
+    return " ".join(text[left:right].split())
+
+
+def _tail_from(text: str, start: int) -> str:
+    """Whitespace-normalised text beginning AT the duty word.
+
+    Normalising matters: the phrase being tested often straddles the PDF's line
+    wrapping ("shall have the respective\\nmeanings assigned").
+    """
+    return " ".join(text[start:start + _CONTEXT_RADIUS].split())
+
+
 def _readable_sentence(text: str, start: int, end: int) -> str:
     """The complete sentence containing [start,end), for a human to read.
 
@@ -172,9 +233,11 @@ def sweep_signals(document_text: str) -> list[Signal]:
         if m.start() < last_end:  # overlaps previous longer match
             continue
         last_end = m.end()
-        # Boilerplate is tested on the narrow window so the count of signals a
-        # document reports does not shift with a display change.
-        if _BOILERPLATE_RE.search(_sentence_around(document_text, m.start(), m.end())):
+        # Is the duty word itself part of a definition / scope / savings clause?
+        if _NON_DUTY_TAIL_RE.match(_tail_from(document_text, m.start())):
+            continue
+        # Or does administrative boilerplate surround it?
+        if _BOILERPLATE_RE.search(_local_context(document_text, m.start(), m.end())):
             continue
         signals.append(
             Signal(
