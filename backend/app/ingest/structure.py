@@ -15,7 +15,21 @@ from dataclasses import dataclass, field
 
 # Numbering patterns, most specific first.
 _CHAPTER = re.compile(r"^\s*(chapter|part)\s+([IVXLC]+|\d+)\b", re.IGNORECASE)
-_DOTTED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})\.?\s+(.*\S)?", re.DOTALL)
+# A clause opener is a number followed by a LITERAL period. The rest of the line
+# is optional, because gazette-style PDFs (SEBI regulations) extract the
+# provision number onto a line of its own:
+#
+#     4.
+#     (1)
+#     Any person who intends to act as a stock broker shall ...
+#
+# Requiring trailing text on the same line (the old `\s+`) meant those documents
+# opened no clause at all: 80% of a 24-page regulation ended up inside no clause
+# and was never analysed. Requiring the period is what keeps running-header page
+# numbers ("50 THE GAZETTE OF INDIA : EXTRAORDINARY"), wrapped cross-references
+# ("57 and such other requirements ..."), and footnote markers from being
+# mistaken for provisions.
+_DOTTED = re.compile(r"^\s*(\d+(?:\.\d+){0,5})\.\s*(.*\S)?$", re.DOTALL)
 _ALPHA = re.compile(r"^\s*\(([a-z])\)\s+", re.IGNORECASE)
 _ROMAN = re.compile(r"^\s*\(([ivxlc]+)\)\s+", re.IGNORECASE)
 
@@ -173,6 +187,19 @@ def _paragraph_units(
 
 
 def _looks_like_number(tok: str) -> bool:
-    """Guard against matching sentences that merely start with a digit."""
+    """Guard against matching things that merely look like a clause number.
+
+    Beyond sentences that start with a digit, this rejects fee/expense table
+    values such as "0.00010", "0.0015" and "1.85", which appear in SEBI fee
+    schedules and were being segmented as clauses (producing paths like
+    "Ch.IX 0.00010"). A real provision number never starts at zero and never
+    has a zero-padded component.
+    """
     parts = tok.split(".")
-    return all(p.isdigit() for p in parts) and len(parts[0]) <= 3
+    if not all(p.isdigit() for p in parts) or len(parts[0]) > 3:
+        return False
+    if parts[0] == "0":
+        return False
+    if any(len(p) > 1 and p.startswith("0") for p in parts[1:]):
+        return False
+    return True

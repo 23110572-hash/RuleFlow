@@ -11,6 +11,7 @@ Ingests a SEBI document into the CANONICAL layer:
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from datetime import datetime, timezone
 import hashlib
 import threading
@@ -123,22 +124,49 @@ def _persist_coverage(
 
     ``flagged`` obligations count too: a low citation-fidelity score means the
     quote needs a human eye, not that the clause went unread.
+
+    Clauses are matched by CITATION OFFSET, not by ``clause_path``. Paths are
+    not unique — schedules and annexures restart numbering, so a single document
+    can contain "Ch.XI 1" a dozen times — and keying a dict by path silently
+    collapsed them onto one span, crediting coverage to the wrong region of the
+    document. The citation's char offset identifies the clause unambiguously.
     """
-    clause_span_by_path = {
-        c.clause_path: (c.char_start, c.char_end)
-        for c in parsed.clauses
-        if c.char_end > c.char_start
-    }
+    clause_spans = sorted(
+        (c.char_start, c.char_end) for c in parsed.clauses if c.char_end > c.char_start
+    )
+    clause_starts = [s for s, _ in clause_spans]
+
+    def containing_clause(pos: int) -> tuple[int, int] | None:
+        """The clause span that physically contains ``pos``. Clause spans tile
+        the document in order and never overlap, so the candidate is the last
+        clause starting at or before ``pos``."""
+        i = bisect_right(clause_starts, pos) - 1
+        if i >= 0:
+            start, end = clause_spans[i]
+            if start <= pos < end:
+                return start, end
+        return None
+
+    # Fallback only, for obligations with no usable citation offset. First
+    # occurrence wins; see the docstring on why this cannot be the primary key.
+    span_by_path: dict[str, tuple[int, int]] = {}
+    for c in parsed.clauses:
+        if c.char_end > c.char_start:
+            span_by_path.setdefault(c.clause_path, (c.char_start, c.char_end))
 
     spans: list[tuple[int, int]] = []
     for o in obligations:
         if o.status == "superseded":
             continue
-        clause_span = clause_span_by_path.get(o.clause_path)
-        if clause_span:
-            spans.append(clause_span)
-        elif (o.citation or {}).get("char_start") is not None:
-            spans.append((o.citation["char_start"], o.citation["char_end"]))
+        citation = o.citation or {}
+        pos = citation.get("char_start")
+        span = containing_clause(pos) if pos is not None else None
+        if span is None:
+            span = span_by_path.get(o.clause_path)
+        if span is None and pos is not None and citation.get("char_end") is not None:
+            span = (pos, citation["char_end"])
+        if span:
+            spans.append(span)
 
     cert = build_coverage_certificate(parsed.text, spans, document_id=document.id)
     report = CoverageReport(
