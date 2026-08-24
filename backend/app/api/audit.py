@@ -20,8 +20,14 @@ def list_entries(
     db: Session = Depends(get_db),
 ):
     """Return audit entries scoped to the authenticated user's firm."""
+    # Tiebreak on id, matching the ordering the chain itself is built and
+    # verified with (see audit_service._latest_chain_hash and .verify). Several
+    # entries routinely share a recorded_at — an upload and the change analysis
+    # it triggers land in the same millisecond — and ordering on the timestamp
+    # alone left those in arbitrary order, so the page could show effects above
+    # their causes. Displaying the chain's own sequence is the defensible answer.
     stmt = select(AuditEntry).where(AuditEntry.firm_id == firm.id)
-    stmt = stmt.order_by(AuditEntry.recorded_at.desc()).limit(limit)
+    stmt = stmt.order_by(AuditEntry.recorded_at.desc(), AuditEntry.id.desc()).limit(limit)
     rows = db.execute(stmt).scalars().all()
     return [
         {

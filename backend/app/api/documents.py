@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_firm
+from app.api.deps import get_current_firm, get_current_user
 from app.db.base import get_db
-from app.db.models import CoverageReport, Document, Firm, Obligation
+from app.db.models import CoverageReport, Document, Firm, Obligation, User
 from app.schemas.models import CoverageOut, DocumentOut, IngestTextIn
 from app.services import ingest_service
 
@@ -101,6 +101,7 @@ def ingest_document_pdf(
     category: str | None = Form(None),
     max_clauses: int | None = Form(None),
     firm: Firm = Depends(get_current_firm),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     data = file.file.read()
@@ -112,6 +113,7 @@ def ingest_document_pdf(
         category=category,
         max_clauses=max_clauses,
         firm_id=firm.id,
+        actor=user.email,
     )
     if created:
         return DocumentOut(

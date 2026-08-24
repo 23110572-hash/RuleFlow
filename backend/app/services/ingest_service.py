@@ -260,6 +260,9 @@ def ingest_text(
             "obligations": len(obligations),
             "flagged": extraction.flagged,
         },
+        # Without firm_id this lands on the global chain, and the Activity page
+        # queries the firm's chain — so the upload never appears there.
+        firm_id=document.firm_id,
         after_hash=chash,
     )
     db.commit()
@@ -317,9 +320,13 @@ def ingest_pdf_async(
     is_public: bool = True,
     max_clauses: int | None = None,
     firm_id: str | None = None,
+    actor: str | None = None,
 ) -> tuple[Document, bool]:
     """Queue a PDF for extraction. Parsing + LLM extraction run entirely in a
     background thread so the HTTP request returns immediately.
+
+    ``actor`` is who to credit in the audit log. It has to be passed in, because
+    the background thread has no request and therefore no authenticated user.
 
     Returns (document, created) where ``created`` is False when an identical
     document (same content hash) was already ingested by this firm.
@@ -372,7 +379,7 @@ def ingest_pdf_async(
     from app.db.base import SessionLocal
     thread = threading.Thread(
         target=_background_ingest,
-        args=(SessionLocal, document_id, data, category, max_clauses),
+        args=(SessionLocal, document_id, data, category, max_clauses, actor),
         daemon=True,
     )
     thread.start()
@@ -504,6 +511,7 @@ def _background_ingest(
     data: bytes,
     category: str | None,
     max_clauses: int | None,
+    actor: str | None = None,
 ) -> None:
     """Parse PDF and run LLM extraction in a background thread with progress updates."""
     db = db_factory()
@@ -566,11 +574,17 @@ def _background_ingest(
             action="document.ingested",
             payload={
                 "document_id": document.id,
+                "title": document.title,
                 "content_hash": document.content_hash,
                 "obligations": len(obligations),
                 "flagged": extraction.flagged,
                 "clauses_failed": extraction.clauses_failed,
             },
+            # Without firm_id this lands on the global chain, and the Activity
+            # page queries the firm's chain — so the upload, the single most
+            # important event in the product, never appeared there.
+            firm_id=document.firm_id,
+            actor=actor or "system",
             after_hash=document.content_hash,
         )
         db.commit()

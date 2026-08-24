@@ -79,6 +79,9 @@ def diff_documents(db: Session, from_document_id: str, to_document_id: str) -> d
         db,
         action="regulation.diffed",
         payload={"from": from_document_id, "to": to_document_id, "summary": result.summary()},
+        # Scope it to the firm that owns the documents, or the comparison is
+        # written to the global chain and never shows on the Activity page.
+        firm_id=getattr(db.get(Document, to_document_id), "firm_id", None),
     )
     db.commit()
     return {"summary": result.summary(), "diff": result.to_dict(), "change_event_ids": [e.id for e in events]}
