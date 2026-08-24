@@ -33,7 +33,16 @@ class Settings(BaseSettings):
     # ("requires more credits, or fewer max_tokens") even when credit remains.
     # Extraction responses are small JSON objects, so a tight cap is correct.
     # 2000 (not 1500) because the extraction call now also returns applicability.
+    # This is the FLOOR: extraction raises it in proportion to clause length,
+    # because one global ceiling cannot fit clauses spanning 74 to ~7,000
+    # characters. A dense clause hit the cap mid-JSON, which cannot parse, and
+    # the whole clause was then written off as unanalysable.
     llm_max_tokens: int = 2000
+    # Upper bound for that scaling, and for the one retry issued when a reply
+    # comes back with finish_reason == "length". Raising a ceiling is close to
+    # free: billing is on tokens actually generated, not on the cap. The cap
+    # exists to bound OpenRouter's pre-authorisation and to stop a runaway reply.
+    llm_max_tokens_ceiling: int = 8000
     llm_timeout: int = 90
     llm_num_retries: int = 2
 

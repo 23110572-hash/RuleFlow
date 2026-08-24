@@ -124,7 +124,8 @@ def extract_from_clause(
         f"Clause path: {clause.clause_path}\n"
         f"Clause text:\n\"\"\"\n{clause_text}\n\"\"\""
     )
-    payload = llm.complete_json(EXTRACTION_SYSTEM, user_prompt)
+    budget = _output_budget(len(clause_text))
+    payload = llm.complete_json(EXTRACTION_SYSTEM, user_prompt, max_tokens=budget)
     raw_obs = (payload or {}).get("obligations", []) if isinstance(payload, dict) else []
 
     results: list[ProposedObligation] = []
@@ -144,6 +145,7 @@ def extract_from_clause(
                     f"Your previous quote was not found verbatim in the clause: {quote!r}. "
                     "Re-extract, quoting EXACTLY the characters that appear in the clause text."
                 ),
+                max_tokens=budget,
             )
             retry_obs = (retry or {}).get("obligations", []) if isinstance(retry, dict) else []
             if retry_obs:
@@ -177,6 +179,25 @@ def extract_from_clause(
             )
         )
     return _dedup_obligations(results)
+
+
+def _output_budget(clause_chars: int) -> int:
+    """Output ceiling for a clause of ``clause_chars`` characters.
+
+    Response size tracks clause size: for every obligation the model returns a
+    verbatim quote FROM the clause plus a restatement OF it, so the text it
+    writes is roughly twice the duty content it read (~4 chars per token, hence
+    a term of one token per character). The constant covers JSON field names.
+
+    Never goes below ``llm_max_tokens``, so this can only give a clause more room
+    than before, never less. Raising the ceiling costs nothing on its own —
+    billing is on tokens generated, not on the cap.
+    """
+    proportional = 600 + clause_chars
+    return max(
+        settings.llm_max_tokens,
+        min(settings.llm_max_tokens_ceiling, proportional),
+    )
 
 
 def _norm_modality(value: str | None) -> str:
