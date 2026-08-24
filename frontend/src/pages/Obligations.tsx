@@ -233,16 +233,16 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                   <div className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
                     <Clock className="h-3.5 w-3.5 text-ink-400" /> Deadline / Periodicity
                   </div>
-                  <div className="mt-1 text-sm font-semibold text-ink-800 capitalize">
-                    {formatAttr(data.obligation.deadline_or_periodicity, "Continuous / On-going")}
+                  <div className="mt-1 text-sm">
+                    <ClauseAttr value={data.obligation.deadline_or_periodicity} />
                   </div>
                 </div>
                 <div className="rounded-xl border border-ink-100 p-3 bg-white">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
                     <Zap className="h-3.5 w-3.5 text-ink-400" /> Threshold / Rule
                   </div>
-                  <div className="mt-1 text-sm font-semibold text-ink-800 capitalize">
-                    {formatAttr(data.obligation.threshold, "Standard Requirement")}
+                  <div className="mt-1 text-sm">
+                    <ClauseAttr value={data.obligation.threshold} />
                   </div>
                 </div>
               </div>
@@ -351,11 +351,23 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
   );
 }
 
-function formatAttr(val: string | null, fallback: string): string {
-  if (!val || val.trim().toLowerCase() === "n/a" || val.trim() === "") {
-    return fallback;
+/**
+ * A structured attribute the extraction agent only fills when the clause states
+ * it. Absence is shown as absence.
+ *
+ * This used to substitute "Continuous / On-going" and "Standard Requirement",
+ * which asserted things the regulation never said - a clause requiring a
+ * one-time application was labelled continuous, and the test engine meanwhile
+ * compiled it as a plain presence check. "Not specified in this clause" is also
+ * more useful: it tells a reviewer to look at the parent circular rather than
+ * implying no deadline exists.
+ */
+function ClauseAttr({ value }: { value: string | null }) {
+  const stated = value && value.trim() !== "" && value.trim().toLowerCase() !== "n/a";
+  if (!stated) {
+    return <span className="italic text-ink-400">Not specified in this clause</span>;
   }
-  return val;
+  return <span className="font-semibold capitalize text-ink-800">{value}</span>;
 }
 
 
