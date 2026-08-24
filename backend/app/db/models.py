@@ -53,6 +53,19 @@ class Document(Base):
     obligations: Mapped[list["Obligation"]] = relationship(back_populates="document")
 
 
+#: Obligation statuses that count as a live entry in the register.
+#:
+#:   verified       the citation kernel matched the quote to the source text
+#:   human_verified the kernel could not, and a reviewer confirmed the wording
+#:   approved       adopted into the firm's compliance record
+#:   flagged        awaiting review; still shown, because hiding a duty until
+#:                  someone signs off on the quote would silently shrink scope
+#:
+#: Excluded: "rejected" and "superseded". Kept as one list so a new state cannot
+#: be added and then quietly forgotten by one of the queries that filters on it.
+GROUNDED_STATUSES = ("verified", "human_verified", "approved", "flagged")
+
+
 class Obligation(Base):
     __tablename__ = "obligations"
 

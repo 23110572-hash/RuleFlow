@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.scoring import score_readiness
 from app.db.models import (
+    GROUNDED_STATUSES,
     ChangeRequest,
     Control,
     Document,
@@ -205,7 +206,7 @@ def readiness_for_firm(db: Session, firm_id: str, category: str) -> dict:
 
     # SEBI obligations that apply to this firm's category (grounded, live).
     grounded = db.execute(
-        select(Obligation).where(Obligation.status.in_(["verified", "approved", "flagged"]))
+        select(Obligation).where(Obligation.status.in_(GROUNDED_STATUSES))
     ).scalars().all()
     relevant = [o for o in grounded if _obligation_applies_to_firm(o, cat)]
     relevant_ids = {o.id for o in relevant}
@@ -356,7 +357,9 @@ def suggest_obligations(
         select(Obligation)
         .where(
             Obligation.source_document_id.in_(scope_doc_ids),
-            Obligation.status.in_(["verified", "approved"]),
+            # A reviewer who confirmed the wording has done the same job the
+            # kernel does, so those obligations are suggestable too.
+            Obligation.status.in_(["verified", "human_verified", "approved"]),
         )
         .order_by(Obligation.clause_path)
         .limit(max(limit, 1) * 4)  # room for post-filter shrinkage

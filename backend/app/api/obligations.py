@@ -21,6 +21,12 @@ class DecisionIn(BaseModel):
     decision: str  # approve | reject
 
 
+class ConfirmWordingIn(BaseModel):
+    """Optional note recording why the reviewer accepted the wording."""
+
+    note: str | None = None
+
+
 def _out(o: Obligation, doc: Document | None = None) -> ObligationOut:
     return ObligationOut(
         id=o.id,
@@ -180,6 +186,61 @@ def _retract_obligation(db: Session, firm_id: str, obligation_id: str) -> str | 
                 c.status = "retired"
             touched = c.id
     return touched
+
+
+@router.post("/{obligation_id}/confirm-wording")
+def confirm_wording(
+    obligation_id: str,
+    body: ConfirmWordingIn,
+    firm: Firm = Depends(get_current_firm),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """A reviewer confirms the quote of a flagged obligation is correct.
+
+    Deliberately NOT status="verified". That value means the citation kernel
+    matched the quote against the source text at or above the fidelity
+    threshold, and a human clicking a button is a different kind of claim. Using
+    "human_verified" keeps the two distinguishable, which is the point of having
+    a deterministic verifier at all — a register where machine-checked and
+    person-attested rows look identical cannot be audited.
+
+    Who confirmed it and when is not stored on the obligation: that is what the
+    hash-chained audit log is for, so the attestation is tamper-evident rather
+    than an editable column.
+    """
+    o = db.get(Obligation, obligation_id)
+    if not o:
+        raise HTTPException(404, "obligation not found")
+
+    doc = db.get(Document, o.source_document_id)
+    if not doc or doc.firm_id != firm.id:
+        raise HTTPException(404, "obligation not found")
+
+    if o.status not in {"flagged", "human_verified"}:
+        raise HTTPException(
+            409,
+            f"Only obligations awaiting review can be confirmed (this one is '{o.status}').",
+        )
+
+    before = o.status
+    o.status = "human_verified"
+    audit.record(
+        db,
+        action="obligation.wording_confirmed",
+        payload={
+            "obligation_id": o.id,
+            "clause_path": o.clause_path,
+            "citation_fidelity": o.citation_fidelity,
+            "note": (body.note or "").strip()[:500],
+        },
+        firm_id=firm.id,
+        actor=user.email,
+        before_hash=before,
+        after_hash=o.status,
+    )
+    db.commit()
+    return {"id": o.id, "status": o.status, "confirmed_by": user.email}
 
 
 @router.post("/{obligation_id}/decision")

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    GROUNDED_STATUSES,
     ChangeEvent,
     ChangeRequest,
     Control,
@@ -696,7 +697,7 @@ def detect_impact_on_followed_rules(
     # Current SEBI obligations relevant to this firm's category, optionally
     # restricted to the single circular the user chose to compare against.
     ob_stmt = select(Obligation).where(
-        Obligation.status.in_(["verified", "approved", "flagged"])
+        Obligation.status.in_(GROUNDED_STATUSES)
     )
     if document_id:
         ob_stmt = ob_stmt.where(Obligation.source_document_id == document_id)
@@ -848,7 +849,7 @@ def scan_firm_database_for_changes(
 
     # Fetch SEBI obligations for this firm category
     stmt = select(Obligation).where(
-        Obligation.status.in_(["verified", "approved", "flagged"])
+        Obligation.status.in_(GROUNDED_STATUSES)
     )
     if document_id:
         stmt = stmt.where(Obligation.source_document_id == document_id)

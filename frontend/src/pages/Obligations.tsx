@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Check,
   ListChecks,
   Quote,
@@ -19,6 +20,76 @@ import {
 } from "lucide-react";
 import { api, DocumentT, ObligationExplanation } from "@/lib/api";
 import { Card, EmptyState, ModalityPill, PageHeader, Spinner } from "@/components/ui";
+import { TButton } from "@/components/motion";
+
+/**
+ * Lets a reviewer vouch for the wording of an obligation the citation kernel
+ * could not ground.
+ *
+ * It records a DIFFERENT state from "verified" on purpose. That value means the
+ * quote matched the source text character for character; this one means a named
+ * person read it and accepted it. Collapsing the two would make the register
+ * unauditable, since nobody could tell which rows a machine checked.
+ */
+function ConfirmWording({ obligationId, fidelity }: { obligationId: string; fidelity: number }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState("");
+
+  const confirm = useMutation({
+    mutationFn: () => api.confirmWording(obligationId, note.trim() || undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["obligations"] });
+      qc.invalidateQueries({ queryKey: ["obligation", obligationId] });
+    },
+  });
+
+  if (confirm.isSuccess) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+        <UserCheck className="h-4 w-4 shrink-0" />
+        Wording confirmed. Recorded against your name in the activity log.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <div className="flex items-start gap-2 text-sm text-amber-900">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <p className="font-medium">This quote could not be matched to the source automatically.</p>
+          <p className="mt-1 text-xs text-amber-800">
+            Citation fidelity {Math.round((fidelity ?? 0) * 100)}%, below the required threshold.
+            Compare it against the verbatim text above. If it reads correctly, confirm it — your
+            name and the time are recorded in the activity log.
+          </p>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        className="input mt-3 text-sm"
+        placeholder="Optional: why you accepted this wording"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        aria-label="Reason for confirming the wording"
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <TButton
+          className="btn-primary text-sm"
+          disabled={confirm.isPending}
+          onClick={() => confirm.mutate()}
+        >
+          {confirm.isPending ? "Confirming…" : "Confirm wording is correct"}
+        </TButton>
+        {confirm.isError && (
+          <span className="text-xs text-red-700">{(confirm.error as Error).message}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Obligations() {
   const [q, setQ] = useState("");
@@ -123,6 +194,8 @@ export default function Obligations() {
                     <td className="px-4 py-3 text-right align-top">
                       {o.status === "verified" ? (
                         <span className="pill whitespace-nowrap bg-green-50 text-green-700"><Check className="h-3.5 w-3.5" /> verified</span>
+                      ) : o.status === "human_verified" ? (
+                        <span className="pill whitespace-nowrap bg-sky-50 text-sky-700"><UserCheck className="h-3.5 w-3.5" /> confirmed</span>
                       ) : (
                         <span className="pill whitespace-nowrap bg-amber-50 text-amber-700">needs review</span>
                       )}
@@ -198,7 +271,14 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                 <ModalityPill modality={data.obligation.modality} />
                 {data.obligation.status === "verified" ? (
                   <span className="pill bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs">
-                    <Check className="h-3.5 w-3.5" /> Verified
+                    <Check className="h-3.5 w-3.5" /> Citation verified
+                  </span>
+                ) : data.obligation.status === "human_verified" ? (
+                  // Kept visibly distinct from the kernel's own verdict: one is a
+                  // character-for-character match against the source, the other
+                  // is a person vouching for it.
+                  <span className="pill bg-sky-50 text-sky-700 border border-sky-200 text-xs">
+                    <UserCheck className="h-3.5 w-3.5" /> Confirmed by reviewer
                   </span>
                 ) : (
                   <span className="pill bg-amber-50 text-amber-700 border border-amber-200 text-xs">
@@ -206,6 +286,10 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
                   </span>
                 )}
               </div>
+
+              {data.obligation.status === "flagged" && (
+                <ConfirmWording obligationId={data.obligation.id} fidelity={data.obligation.citation_fidelity} />
+              )}
 
               {/* Core Statement */}
               <div className="rounded-xl border border-ink-100 bg-ink-50/50 p-4">

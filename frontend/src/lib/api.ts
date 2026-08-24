@@ -74,6 +74,11 @@ export const api = {
   dashboard: (firmId: string) => request<Dashboard>(`/firms/${firmId}/dashboard`),
   documents: () => request<DocumentT[]>("/documents"),
   coverage: (id: string) => request<Coverage>(`/documents/${id}/coverage`),
+  confirmWording: (id: string, note?: string) =>
+    request<{ id: string; status: string; confirmed_by: string }>(
+      `/obligations/${id}/confirm-wording`,
+      { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+    ),
   emailRegister: (id: string) =>
     request<{ status: string; recipient: string; document_id: string }>(
       `/documents/${id}/email-register`,
