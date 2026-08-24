@@ -68,8 +68,9 @@ def list_suggestions(
 ):
     """Obligations RuleFlow recommends this firm adopt next.
 
-    Criteria: grounded (verified/approved), applies_to matches the firm's
-    category (or is generic), and the firm has no active Control for it yet.
+    Criteria: the wording is trusted (verified, human_verified or approved —
+    'flagged' is excluded until a reviewer confirms it), applies_to matches the
+    firm's category or is generic, and the firm has no active Control for it yet.
     Pass ``document_id`` to get suggestions for a single regulation only.
     The Compliance page renders these with an "Adopt" button that calls
     POST /obligations/{id}/decision with decision=approve.

@@ -326,16 +326,20 @@ def suggest_obligations(
     """Return canonical obligations RuleFlow recommends the firm adopt next.
 
     Selection criteria:
-    1. Obligation is grounded (status in {'verified','approved'}) — flagged and
-       rejected are excluded.
-    2. applies_to includes the firm's category (or is generic).
+    1. The quote is trusted: status in {'verified', 'human_verified',
+       'approved'}. 'flagged' is excluded — an obligation whose wording nobody
+       has confirmed should not be proposed for adoption; confirm it on the
+       obligation first and it appears here.
+    2. applies_to includes the firm's category (or is generic/"all"). Note this
+       genuinely filters now that applies_to is populated, so a stock-broker
+       regulation will not be suggested to an investment adviser.
     3. The firm has no active Control referencing this obligation yet.
     4. If ``document_id`` is given, only that document's obligations are
        considered, so the UI can offer document-by-document suggestions.
 
-    Ordered by clause_path so it reads like a table of contents. The response
-    embeds the source document title/circular so the UI can render it directly
-    without a second call.
+    Ordered by position in the source document, so the list reads in the order a
+    reviewer would encounter the provisions. The response embeds the source
+    document title/circular so the UI can render it without a second call.
     """
     # Only ever suggest from this firm's own documents (tenant isolation).
     firm_doc_ids = set(
@@ -352,26 +356,37 @@ def suggest_obligations(
     else:
         scope_doc_ids = list(firm_doc_ids)
 
-    # 1. Grounded obligations only, from the in-scope documents.
-    stmt = (
-        select(Obligation)
-        .where(
-            Obligation.source_document_id.in_(scope_doc_ids),
-            # A reviewer who confirmed the wording has done the same job the
-            # kernel does, so those obligations are suggestable too.
-            Obligation.status.in_(["verified", "human_verified", "approved"]),
-        )
-        .order_by(Obligation.clause_path)
-        .limit(max(limit, 1) * 4)  # room for post-filter shrinkage
+    # 1. What has the firm already adopted? Needed BEFORE the query so the
+    # exclusion happens in SQL. Previously the query took limit*4 rows and then
+    # discarded adopted ones in Python, so a firm that had adopted the first
+    # few hundred obligations got an EMPTY list while matches sat just beyond
+    # the window.
+    adopted: set[str] = set()
+    for c in _active_firm_controls(db, firm_id):
+        adopted.update(c.obligation_ids or [])
+
+    # 2. Obligations whose wording is trusted, from the in-scope documents.
+    stmt = select(Obligation).where(
+        Obligation.source_document_id.in_(scope_doc_ids),
+        # A reviewer who confirmed the wording has done the same job the
+        # kernel does, so those obligations are suggestable too.
+        Obligation.status.in_(["verified", "human_verified", "approved"]),
     )
+    if adopted:
+        stmt = stmt.where(Obligation.id.notin_(list(adopted)))
     candidates = list(db.execute(stmt).scalars().all())
     if not candidates:
         return []
 
-    # 2. What has the firm already adopted?
-    adopted: set[str] = set()
-    for c in _active_firm_controls(db, firm_id):
-        adopted.update(c.obligation_ids or [])
+    # Read in document order. clause_path cannot do this: it is a string, so
+    # "Ch.II 10" sorts before "Ch.II 2". The citation offset is the position in
+    # the source text, which is exactly the order a reviewer reads in.
+    candidates.sort(
+        key=lambda o: (
+            (o.citation or {}).get("char_start", 1 << 62),
+            o.clause_path or "",
+        )
+    )
 
     # 3. Preload source documents in one call.
     doc_ids = {o.source_document_id for o in candidates}
@@ -382,8 +397,8 @@ def suggest_obligations(
 
     suggestions: list[dict] = []
     for o in candidates:
-        if o.id in adopted:
-            continue
+        # Category matching stays in Python: applies_to is a JSON column, so
+        # this cannot be expressed portably in SQL.
         if not _obligation_applies_to_firm(o, firm_category):
             continue
         doc = docs.get(o.source_document_id)
