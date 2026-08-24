@@ -42,16 +42,17 @@ SIGNAL_PATTERNS: list[str] = [
 # contain a duty word but impose no obligation on the intermediary, so counting
 # them as "missed obligations" permanently padded the checklist with noise.
 # Matched ANYWHERE near the duty word, because none of them begins with it.
+# Only constructions that do NOT begin with a duty word belong here, because a
+# window search around the duty word can suppress an unrelated obligation that
+# merely sits nearby. "unless the context otherwise requires" used to be in this
+# list and silently ate two real duties one paragraph below a definitions
+# preamble. Anything phrased "shall ..." goes in NON_DUTY_TAIL_PATTERNS instead.
 BOILERPLATE_PATTERNS: list[str] = [
-    r"shall\s+come\s+into\s+force",
-    r"shall\s+come\s+into\s+effect",
-    r"shall\s+be\s+available\s+on\s+(the\s+)?(sebi\s+)?website",
     r"this\s+circular\s+(is|shall)\s+(be\s+)?issued",
     r"in\s+exercise\s+of\s+the\s+powers\s+conferred",
     r"may\s+be\s+addressed\s+to",
     r"is\s+available\s+(at|on)\s+www\.sebi\.gov\.in",
     r"under\s+the\s+link\s+.?legal",
-    r"unless\s+the\s+context\s+otherwise\s+requires",
 ]
 
 # Constructions that make the duty word part of a DEFINITION, a SCOPE LIMIT or a
@@ -66,6 +67,10 @@ BOILERPLATE_PATTERNS: list[str] = [
 # Structural, not topical: "shall mean" is here, "the Board shall" is not, since
 # the latter usually introduces something a firm must then follow.
 NON_DUTY_TAIL_PATTERNS: list[str] = [
+    # commencement and publication: the circular talking about itself
+    r"shall\s+come\s+into\s+force",
+    r"shall\s+come\s+into\s+effect",
+    r"shall\s+be\s+available\s+on\s+(the\s+)?(sebi\s+)?website",
     # definitions and interpretation: fixing what a word denotes
     r"shall\s+mean",
     r"shall\s+have\s+the\s+(same\s+|respective\s+)?meanings?",
@@ -179,7 +184,7 @@ def _sentence_around(text: str, start: int, end: int) -> str:
 #: wrapping ("shall have the respective\nmeanings assigned"), deliberately narrow
 #: enough that a definition elsewhere in the paragraph cannot suppress a genuine
 #: duty sitting next to it.
-_CONTEXT_RADIUS = 180
+_CONTEXT_RADIUS = 120
 
 
 def _local_context(text: str, start: int, end: int) -> str:
