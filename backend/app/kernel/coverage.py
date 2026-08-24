@@ -56,6 +56,17 @@ _SIGNAL_RE = re.compile("|".join(f"(?:{p})" for p in SIGNAL_PATTERNS), re.IGNORE
 _BOILERPLATE_RE = re.compile("|".join(f"(?:{p})" for p in BOILERPLATE_PATTERNS), re.IGNORECASE)
 _SENT_BOUNDARY = re.compile(r"(?<=[.;:])\s+|\n+")
 
+# A REAL sentence end: closing punctuation, or a blank line. A single newline is
+# just PDF line wrapping — treating it as a boundary (as _SENT_BOUNDARY does) cuts
+# every quoted sentence at ~90 characters, which is why the review checklist read
+# as fragments like 'or clearing member and shall include –'.
+_HARD_BOUNDARY = re.compile(r"(?<=[.;:])\s|\n\s*\n")
+
+# Bounds on reconstructing a sentence. SEBI definitions run long, but an
+# unpunctuated stretch should not swallow the whole page.
+_SENTENCE_LOOKBACK = 700
+_SENTENCE_LOOKAHEAD = 700
+
 
 @dataclass
 class Signal:
@@ -112,13 +123,39 @@ class CoverageCertificate:
 
 
 def _sentence_around(text: str, start: int, end: int) -> str:
-    """Return the sentence containing [start,end)."""
+    """The line-bounded window around [start,end).
+
+    Kept as-is because it decides which signals are dropped as boilerplate, and
+    widening it would silently change how many signals a document reports. Use
+    :func:`_readable_sentence` for anything shown to a person.
+    """
     left = text.rfind("\n", 0, start)
     for m in _SENT_BOUNDARY.finditer(text, 0, start):
         left = max(left, m.end())
     right_m = _SENT_BOUNDARY.search(text, end)
     right = right_m.start() if right_m else len(text)
     return text[max(0, left):right]
+
+
+def _readable_sentence(text: str, start: int, end: int) -> str:
+    """The complete sentence containing [start,end), for a human to read.
+
+    Ignores the hard line breaks a PDF leaves behind and rejoins the wrapped
+    lines, so a reviewer sees "'clearing corporation' shall mean a clearing
+    corporation as defined in regulation 2(1)(i) of ..." rather than the 90
+    characters that happened to fit on one line of the original page.
+    """
+    window_start = max(0, start - _SENTENCE_LOOKBACK)
+    left = window_start
+    for m in _HARD_BOUNDARY.finditer(text, window_start, start):
+        left = m.end()
+
+    window_end = min(len(text), end + _SENTENCE_LOOKAHEAD)
+    boundary = _HARD_BOUNDARY.search(text, end, window_end)
+    right = boundary.start() if boundary else window_end
+
+    # Collapse the PDF's line wrapping into flowing text.
+    return " ".join(text[left:right].split())
 
 
 def sweep_signals(document_text: str) -> list[Signal]:
@@ -135,15 +172,16 @@ def sweep_signals(document_text: str) -> list[Signal]:
         if m.start() < last_end:  # overlaps previous longer match
             continue
         last_end = m.end()
-        sentence = _sentence_around(document_text, m.start(), m.end())
-        if _BOILERPLATE_RE.search(sentence):
+        # Boilerplate is tested on the narrow window so the count of signals a
+        # document reports does not shift with a display change.
+        if _BOILERPLATE_RE.search(_sentence_around(document_text, m.start(), m.end())):
             continue
         signals.append(
             Signal(
                 phrase=m.group(0),
                 char_start=m.start(),
                 char_end=m.end(),
-                sentence=sentence,
+                sentence=_readable_sentence(document_text, m.start(), m.end()),
             )
         )
     return signals

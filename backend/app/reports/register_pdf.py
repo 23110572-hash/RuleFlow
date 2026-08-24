@@ -65,32 +65,35 @@ def _styles() -> dict:
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle(
-            "RfTitle", parent=base["Title"], fontSize=16, leading=20,
+            "RfTitle", parent=base["Title"], fontSize=18, leading=22,
             textColor=_INK, alignment=TA_LEFT, spaceAfter=2,
         ),
         "subtitle": ParagraphStyle(
-            "RfSubtitle", parent=base["Normal"], fontSize=9, leading=12, textColor=_MUTED,
+            "RfSubtitle", parent=base["Normal"], fontSize=10, leading=13, textColor=_MUTED,
         ),
         "h2": ParagraphStyle(
-            "RfH2", parent=base["Heading2"], fontSize=11, leading=14,
+            "RfH2", parent=base["Heading2"], fontSize=12, leading=15,
             textColor=_INK, spaceBefore=10, spaceAfter=4,
         ),
+        # Body sizes are set for reading on paper, not for fitting the most rows
+        # per page: at 7.5pt the register was legible on screen and unreadable
+        # printed. Bigger text costs pages, which is the right trade.
         "cell": ParagraphStyle(
-            "RfCell", parent=base["Normal"], fontSize=7.5, leading=9.5, textColor=_INK,
+            "RfCell", parent=base["Normal"], fontSize=9.5, leading=12, textColor=_INK,
         ),
         "cell_muted": ParagraphStyle(
-            "RfCellMuted", parent=base["Normal"], fontSize=7, leading=9, textColor=_MUTED,
+            "RfCellMuted", parent=base["Normal"], fontSize=9, leading=11.5, textColor=_MUTED,
         ),
         "quote": ParagraphStyle(
-            "RfQuote", parent=base["Normal"], fontSize=6.8, leading=8.6,
+            "RfQuote", parent=base["Normal"], fontSize=8.5, leading=11,
             textColor=_MUTED, fontName="Helvetica-Oblique",
         ),
         "th": ParagraphStyle(
-            "RfTh", parent=base["Normal"], fontSize=7.5, leading=9.5,
+            "RfTh", parent=base["Normal"], fontSize=9.5, leading=12,
             textColor=_INK, fontName="Helvetica-Bold",
         ),
         "note": ParagraphStyle(
-            "RfNote", parent=base["Normal"], fontSize=7.5, leading=10, textColor=_MUTED,
+            "RfNote", parent=base["Normal"], fontSize=9, leading=12, textColor=_MUTED,
         ),
     }
 
@@ -176,7 +179,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
     for i, o in enumerate(obligations, start=1):
         statement = _esc(o.get("normalized_statement") or o.get("verbatim_text") or "")
         quote = _esc(o.get("verbatim_text") or "")
-        body = f'<b>{statement}</b><br/><font size="6.8" color="#7b8794">“{quote}”</font>'
+        body = f'<b>{statement}</b><br/><font size="8.5" color="#7b8794">“{quote}”</font>'
 
         modality = (o.get("modality") or "shall").lower()
         status = (o.get("status") or "").lower()
@@ -197,7 +200,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
     # "Judgement-based" needs 26mm or reportlab breaks it mid-word.
     table = LongTable(
         rows,
-        colWidths=[8 * mm, 26 * mm, 26 * mm, 190 * mm, 23 * mm],
+        colWidths=[11 * mm, 28 * mm, 30 * mm, 178 * mm, 26 * mm],
         repeatRows=1,
     )
     style = [
@@ -219,7 +222,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
 
 def _page_furniture(canvas, doc) -> None:
     canvas.saveState()
-    canvas.setFont("Helvetica", 7)
+    canvas.setFont("Helvetica", 8)
     canvas.setFillColor(_MUTED)
     # The date stays, moved out of the cover and into the footer: an undated
     # compliance register is hard to rely on, but it does not belong up front.

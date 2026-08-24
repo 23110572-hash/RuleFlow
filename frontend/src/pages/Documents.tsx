@@ -203,6 +203,63 @@ function friendlyError(err: unknown): string {
 }
 
 /**
+ * The duty sentences nobody accounted for, collapsed by default.
+ *
+ * These run to dozens of items and are mostly definitions ("shall mean",
+ * "shall be construed"), so rendering them inline buried the coverage figures
+ * the reader came for. It is a checklist to open deliberately, not a wall.
+ */
+function ReviewList({ signals }: { signals: Coverage["unaccounted_signals"] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-3 py-2.5 text-left text-xs font-medium text-amber-700 transition hover:bg-amber-50"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1">
+          {signals.length} duty {signals.length === 1 ? "sentence" : "sentences"} need human
+          verification
+        </span>
+        <span className="text-[11px] font-normal text-amber-600">
+          {open ? "Hide" : "Review"}
+        </span>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="max-h-80 space-y-2 overflow-y-auto border-t border-amber-200 p-3">
+              {signals.map((s, i) => (
+                <div key={i} className="rounded-lg border border-amber-200 bg-white px-3 py-2.5">
+                  <div className="text-xs leading-relaxed text-ink-700">{s.sentence}</div>
+                  {s.phrase && (
+                    <div className="mt-1 text-[11px] font-medium text-amber-700">
+                      Trigger phrase: “{s.phrase}”
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**
  * Manual resend of the obligation register PDF. The same email is sent
  * automatically when analysis finishes; this exists because "did it actually
  * send?" is otherwise only answerable from the server logs, and because a
@@ -341,24 +398,7 @@ function DocStrip({ doc }: { doc: DocumentT }) {
                         </div>
 
                         {coverage.unaccounted_signals.length > 0 ? (
-                          <div>
-                            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              Needs human verification ({coverage.unaccounted_signals.length})
-                            </div>
-                            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                              {coverage.unaccounted_signals.map((s, i) => (
-                                <div key={i} className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5">
-                                  <div className="text-xs leading-relaxed text-ink-700">{s.sentence}</div>
-                                  {s.phrase && (
-                                    <div className="mt-1 text-[11px] font-medium text-amber-700">
-                                      Trigger phrase: “{s.phrase}”
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          <ReviewList signals={coverage.unaccounted_signals} />
                         ) : (
                           <div className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-700">
                             <CheckCircle2 className="h-3.5 w-3.5" />
