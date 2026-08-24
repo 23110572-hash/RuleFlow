@@ -56,14 +56,9 @@ class RegisterMeta:
     category: str | None = None
     issue_date: datetime | None = None
     page_count: int | None = None
-    content_hash: str | None = None
     clauses_read: int | None = None
     clauses_failed: int = 0
     failed_clause_paths: list[str] | None = None
-    signals_total: int | None = None
-    signals_captured: int | None = None
-    signals_unaccounted: int | None = None
-    firm_name: str | None = None
 
 
 def _styles() -> dict:
@@ -113,17 +108,6 @@ def _esc(text: str | None) -> str:
     )
 
 
-def _stated(value: str | None) -> bool:
-    return bool(value and str(value).strip() and str(value).strip().lower() != "n/a")
-
-
-def _attr_cell(value: str | None, st: dict) -> Paragraph:
-    """A structured attribute, or an explicit note that the clause was silent."""
-    if _stated(value):
-        return Paragraph(_esc(value), st["cell"])
-    return Paragraph("<i>Not specified</i>", st["cell_muted"])
-
-
 def _summary_line(meta: RegisterMeta, total: int, verified: int, flagged: int) -> str:
     bits = [f"<b>{total}</b> obligations extracted"]
     if verified or flagged:
@@ -133,10 +117,6 @@ def _summary_line(meta: RegisterMeta, total: int, verified: int, flagged: int) -
         if meta.clauses_failed:
             clause_bit += f" ({meta.clauses_failed} could not be analysed)"
         bits.append(clause_bit)
-    if meta.signals_total is not None:
-        bits.append(
-            f"{meta.signals_captured} of {meta.signals_total} duty sentences accounted for"
-        )
     return " &nbsp;·&nbsp; ".join(bits)
 
 
@@ -178,16 +158,6 @@ def _cover(meta: RegisterMeta, obligations: list[dict], st: dict) -> list:
             )
         )
 
-    trace = []
-    if meta.firm_name:
-        trace.append(f"Prepared for {_esc(meta.firm_name)}")
-    trace.append(
-        "Generated " + datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
-    )
-    if meta.content_hash:
-        trace.append(f"Source content hash {_esc(meta.content_hash[:16])}…")
-    flow.append(Spacer(1, 4))
-    flow.append(Paragraph(" &nbsp;·&nbsp; ".join(trace), st["subtitle"]))
     flow.append(Spacer(1, 10))
     return flow
 
@@ -198,8 +168,6 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
         Paragraph("Clause", st["th"]),
         Paragraph("Type", st["th"]),
         Paragraph("Obligation and verbatim source text", st["th"]),
-        Paragraph("Deadline /<br/>periodicity", st["th"]),
-        Paragraph("Threshold", st["th"]),
         Paragraph("Citation", st["th"]),
     ]
     rows: list[list] = [header]
@@ -212,10 +180,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
 
         modality = (o.get("modality") or "shall").lower()
         status = (o.get("status") or "").lower()
-        fidelity = o.get("citation_fidelity")
-        fidelity_txt = f"{float(fidelity):.0%}" if isinstance(fidelity, (int, float)) else "—"
         verified = status in {"verified", "approved"}
-        cite = f"{'Verified' if verified else 'Review'}<br/>{fidelity_txt}"
 
         rows.append(
             [
@@ -223,9 +188,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
                 Paragraph(_esc(o.get("clause_path") or "—"), st["cell"]),
                 Paragraph(_MODALITY_LABEL.get(modality, _esc(modality)), st["cell"]),
                 Paragraph(body, st["cell"]),
-                _attr_cell(o.get("deadline_or_periodicity"), st),
-                _attr_cell(o.get("threshold"), st),
-                Paragraph(cite, st["cell_muted"]),
+                Paragraph("Verified" if verified else "Review", st["cell"]),
             ]
         )
         status_colours.append((i, _VERIFIED if verified else _FLAGGED))
@@ -234,7 +197,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
     # "Judgement-based" needs 26mm or reportlab breaks it mid-word.
     table = LongTable(
         rows,
-        colWidths=[8 * mm, 24 * mm, 26 * mm, 146 * mm, 24 * mm, 22 * mm, 23 * mm],
+        colWidths=[8 * mm, 26 * mm, 26 * mm, 190 * mm, 23 * mm],
         repeatRows=1,
     )
     style = [
@@ -249,7 +212,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fbfcfd")]),
     ]
     for row, colour in status_colours:
-        style.append(("TEXTCOLOR", (6, row), (6, row), colour))
+        style.append(("TEXTCOLOR", (4, row), (4, row), colour))
     table.setStyle(TableStyle(style))
     return table
 
@@ -258,7 +221,14 @@ def _page_furniture(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(_MUTED)
-    canvas.drawString(12 * mm, 8 * mm, "RuleFlow — obligation register")
+    # The date stays, moved out of the cover and into the footer: an undated
+    # compliance register is hard to rely on, but it does not belong up front.
+    canvas.drawString(
+        12 * mm,
+        8 * mm,
+        "RuleFlow — obligation register · "
+        + datetime.now(timezone.utc).strftime("%d %b %Y"),
+    )
     canvas.drawRightString(
         doc.pagesize[0] - 12 * mm, 8 * mm, f"Page {canvas.getPageNumber()}"
     )
@@ -298,8 +268,7 @@ def build_register_pdf(meta: RegisterMeta, obligations: list[dict]) -> bytes:
             "Every row quotes the source document verbatim and cites the clause it "
             "was taken from. Obligations marked <b>Review</b> did not meet the "
             "citation-fidelity threshold and need a human to confirm the wording "
-            "before they are relied upon. Cells reading <i>Not specified</i> mean "
-            "the clause stated no deadline or threshold — not that none applies.",
+            "before they are relied upon.",
             st["note"],
         )
     )

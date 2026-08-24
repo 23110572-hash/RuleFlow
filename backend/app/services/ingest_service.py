@@ -25,7 +25,6 @@ from app.config import settings
 from app.db.models import (
     CoverageReport,
     Document,
-    Firm,
     Obligation,
     ObligationTest,
     User,
@@ -402,7 +401,6 @@ def email_register(
     if not force and not settings.email_register_on_ingest:
         raise RuntimeError("Automatic register email is switched off")
 
-    firm = db.get(Firm, document.firm_id) if document.firm_id else None
     recipient = db.execute(
         select(User.email)
         .where(User.firm_id == document.firm_id)
@@ -418,10 +416,6 @@ def email_register(
         .order_by(Obligation.recorded_at.asc())
     ).scalars().all()
 
-    cov = db.execute(
-        select(CoverageReport).where(CoverageReport.document_id == document.id)
-    ).scalars().first()
-
     title = document.title or document.circular_number or "SEBI document"
     meta = RegisterMeta(
         document_title=title,
@@ -429,14 +423,9 @@ def email_register(
         category=document.category,
         issue_date=document.issue_date,
         page_count=document.page_count or None,
-        content_hash=document.content_hash,
         clauses_read=getattr(extraction, "clauses_processed", None),
         clauses_failed=getattr(extraction, "clauses_failed", 0) or 0,
         failed_clause_paths=list(getattr(extraction, "failed_clause_paths", []) or []),
-        signals_total=cov.signals_total if cov else None,
-        signals_captured=cov.extracted if cov else None,
-        signals_unaccounted=cov.unaccounted if cov else None,
-        firm_name=firm.name if firm else None,
     )
 
     rows = [
@@ -459,15 +448,12 @@ def email_register(
     verified = sum(1 for o in obligations if o.status in {"verified", "approved"})
     pending = len(rows) - verified
     subject = f"Obligation register — {title[:120]}"
+    headline = f"{len(rows)} obligations were extracted from {title}."
     lines = [
-        f"{len(rows)} obligations were extracted from {title}.",
+        headline,
         f"{verified} are citation-verified; {pending} "
         f"{'needs' if pending == 1 else 'need'} a human to confirm the wording.",
     ]
-    if cov:
-        lines.append(
-            f"{cov.extracted} of {cov.signals_total} duty sentences in the document are accounted for."
-        )
     if meta.clauses_failed:
         n = meta.clauses_failed
         lines.append(
@@ -478,9 +464,13 @@ def email_register(
     lines.append("The full register is attached as a PDF. Every row quotes the source text and cites its clause.")
 
     body_text = "\n\n".join(lines)
+    # The headline carries the number the reader actually opened the mail for, so
+    # it is set larger and bold; the rest stays at body size.
     body_html = (
-        '<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1f2933">'
-        + "".join(f"<p>{_html_escape(line)}</p>" for line in lines)
+        '<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;'
+        'line-height:1.5;color:#1f2933">'
+        f'<p style="font-size:19px;font-weight:700;margin:0 0 14px">{_html_escape(headline)}</p>'
+        + "".join(f"<p>{_html_escape(line)}</p>" for line in lines[1:])
         + '<p style="color:#7b8794;font-size:12px">Sent by RuleFlow.</p></div>'
     )
 
