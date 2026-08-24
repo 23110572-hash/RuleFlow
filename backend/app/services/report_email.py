@@ -61,13 +61,15 @@ def send_register_email(
             f"{MAX_ATTACHMENT_BYTES:,} byte limit"
         )
 
-    if settings.report_relay_url.strip():
-        _send_via_relay(to_email, subject, body_text, body_html, pdf_bytes, filename)
+    relay_url = settings.effective_report_relay_url
+    if relay_url:
+        _send_via_relay(relay_url, to_email, subject, body_text, body_html, pdf_bytes, filename)
         return
     _send_via_smtp(to_email, subject, body_text, body_html, pdf_bytes, filename)
 
 
 def _send_via_relay(
+    relay_url: str,
     to_email: str,
     subject: str,
     body_text: str,
@@ -75,11 +77,10 @@ def _send_via_relay(
     pdf_bytes: bytes,
     filename: str,
 ) -> None:
-    relay_url = settings.report_relay_url.strip()
     relay_secret = settings.email_relay_secret
 
     if not relay_url.startswith("https://"):
-        raise RuntimeError("REPORT_RELAY_URL must use HTTPS")
+        raise RuntimeError("Report relay URL must use HTTPS")
     if not relay_secret:
         raise RuntimeError("EMAIL_RELAY_SECRET is not configured")
 
@@ -136,9 +137,13 @@ def _send_via_smtp(
     smtp_user = settings.smtp_user.strip()
     smtp_password = settings.smtp_password.replace(" ", "")
     if not smtp_user or not smtp_password:
+        # Name the likely cause. On a hosted deployment outbound SMTP is usually
+        # blocked and the credentials live with the relay, not here — so landing
+        # in this branch at all normally means no relay URL was resolved.
         raise RuntimeError(
-            "Email delivery is not configured. Set REPORT_RELAY_URL and "
-            "EMAIL_RELAY_SECRET, or SMTP_USER and SMTP_PASSWORD."
+            "No email relay is configured and this host has no SMTP credentials. "
+            "Set EMAIL_RELAY_URL (the report relay is derived from it) or "
+            "REPORT_RELAY_URL, or provide SMTP_USER and SMTP_PASSWORD."
         )
     if settings.smtp_port != 465:
         raise RuntimeError("Direct SMTP delivery requires SMTP_PORT=465")

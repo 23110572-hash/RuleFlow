@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # A SEPARATE relay function for the obligation-register PDF. Kept apart from
     # the OTP relay above on purpose: that one carries registration and login, so
     # its payload and signature are not worth changing to add an attachment.
-    # Shares EMAIL_RELAY_SECRET. When unset, delivery falls back to direct SMTP.
+    # Shares EMAIL_RELAY_SECRET. Usually left blank — see
+    # `effective_report_relay_url`, which derives it from the OTP relay.
     report_relay_url: str = ""
     # Email the register automatically once a document finishes analysing.
     email_register_on_ingest: bool = True
@@ -116,6 +117,24 @@ class Settings(BaseSettings):
             origins.append("http://localhost:5173")
             
         return origins
+
+    @property
+    def effective_report_relay_url(self) -> str:
+        """Where to POST the obligation-register PDF for delivery.
+
+        Falls back to the OTP relay's sibling function on the same deployment,
+        because the two are always deployed together. Without this, an
+        environment with working OTP email still cannot send a report: it would
+        drop to direct SMTP, which the host blocks, and report
+        "delivery is not configured" while verification emails arrive fine.
+        """
+        explicit = self.report_relay_url.strip()
+        if explicit:
+            return explicit
+        otp_relay = self.email_relay_url.strip()
+        if otp_relay and "send-otp-email" in otp_relay:
+            return otp_relay.replace("send-otp-email", "send-report-email")
+        return ""
 
     @property
     def is_openrouter(self) -> bool:
