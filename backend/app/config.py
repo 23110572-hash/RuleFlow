@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     # for local/other environments where outbound SMTP is permitted.
     email_relay_url: str = ""
     email_relay_secret: str = ""
+    # A SEPARATE relay function for the obligation-register PDF. Kept apart from
+    # the OTP relay above on purpose: that one carries registration and login, so
+    # its payload and signature are not worth changing to add an attachment.
+    # Shares EMAIL_RELAY_SECRET. When unset, delivery falls back to direct SMTP.
+    report_relay_url: str = ""
+    # Email the register automatically once a document finishes analysing.
+    email_register_on_ingest: bool = True
     smtp_server: str = "smtp.gmail.com"
     smtp_port: int = 465
     smtp_user: str = ""

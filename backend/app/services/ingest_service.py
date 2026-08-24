@@ -16,11 +16,22 @@ from datetime import datetime, timezone
 import hashlib
 import threading
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents.graph import run_extraction_pipeline
-from app.db.models import CoverageReport, Document, Obligation, ObligationTest
+from app.config import settings
+from app.db.models import (
+    CoverageReport,
+    Document,
+    Firm,
+    Obligation,
+    ObligationTest,
+    User,
+)
+from app.reports.register_pdf import RegisterMeta, build_register_pdf
+from app.services import report_email
 from app.ingest.parser import ParsedDocument, parse_pdf_bytes, parse_text
 from app.kernel.coverage import build_coverage_certificate
 from app.kernel.hashing import content_hash
@@ -28,6 +39,8 @@ from app.kernel.obligation_tests import compile_obligation
 from app.services import audit
 from app.services import change_service
 from app.services import progress
+
+log = structlog.get_logger(__name__)
 
 
 def find_by_hash(db: Session, chash: str) -> Document | None:
@@ -369,6 +382,122 @@ def ingest_pdf_async(
     return document, True
 
 
+def email_register(db: Session, document: Document, extraction=None) -> bool:
+    """Email the obligation register PDF to the firm's user.
+
+    Returns True when a mail was sent. Raises on delivery failure so the caller
+    can log it; the caller must treat that as non-fatal, because the analysis is
+    already committed and a mail outage is not a bad ingest.
+    """
+    if not settings.email_register_on_ingest:
+        return False
+
+    firm = db.get(Firm, document.firm_id) if document.firm_id else None
+    recipient = db.execute(
+        select(User.email)
+        .where(User.firm_id == document.firm_id)
+        .order_by(User.recorded_at.asc())
+    ).scalars().first()
+    if not recipient:
+        log.info("register_email_skipped", document=document.id, reason="no user for firm")
+        return False
+
+    obligations = db.execute(
+        select(Obligation)
+        .where(Obligation.source_document_id == document.id)
+        .where(Obligation.status != "superseded")
+        .order_by(Obligation.recorded_at.asc())
+    ).scalars().all()
+
+    cov = db.execute(
+        select(CoverageReport).where(CoverageReport.document_id == document.id)
+    ).scalars().first()
+
+    title = document.title or document.circular_number or "SEBI document"
+    meta = RegisterMeta(
+        document_title=title,
+        circular_number=document.circular_number,
+        category=document.category,
+        issue_date=document.issue_date,
+        page_count=document.page_count or None,
+        content_hash=document.content_hash,
+        clauses_read=getattr(extraction, "clauses_processed", None),
+        clauses_failed=getattr(extraction, "clauses_failed", 0) or 0,
+        failed_clause_paths=list(getattr(extraction, "failed_clause_paths", []) or []),
+        signals_total=cov.signals_total if cov else None,
+        signals_captured=cov.extracted if cov else None,
+        signals_unaccounted=cov.unaccounted if cov else None,
+        firm_name=firm.name if firm else None,
+    )
+
+    rows = [
+        {
+            "clause_path": o.clause_path,
+            "modality": o.modality,
+            "normalized_statement": o.normalized_statement,
+            "verbatim_text": o.verbatim_text,
+            "deadline_or_periodicity": o.deadline_or_periodicity,
+            "threshold": o.threshold,
+            "status": o.status,
+            "citation_fidelity": o.citation_fidelity,
+        }
+        for o in obligations
+    ]
+
+    pdf = build_register_pdf(meta, rows)
+    filename = report_email.safe_filename(f"RuleFlow-register-{title[:60]}")
+
+    verified = sum(1 for o in obligations if o.status in {"verified", "approved"})
+    pending = len(rows) - verified
+    subject = f"Obligation register — {title[:120]}"
+    lines = [
+        f"{len(rows)} obligations were extracted from {title}.",
+        f"{verified} are citation-verified; {pending} "
+        f"{'needs' if pending == 1 else 'need'} a human to confirm the wording.",
+    ]
+    if cov:
+        lines.append(
+            f"{cov.extracted} of {cov.signals_total} duty sentences in the document are accounted for."
+        )
+    if meta.clauses_failed:
+        n = meta.clauses_failed
+        lines.append(
+            f"{n} {'clause' if n == 1 else 'clauses'} could not be analysed and "
+            f"{'is' if n == 1 else 'are'} missing from this register: "
+            f"{', '.join(meta.failed_clause_paths[:10])}."
+        )
+    lines.append("The full register is attached as a PDF. Every row quotes the source text and cites its clause.")
+
+    body_text = "\n\n".join(lines)
+    body_html = (
+        '<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1f2933">'
+        + "".join(f"<p>{_html_escape(line)}</p>" for line in lines)
+        + '<p style="color:#7b8794;font-size:12px">Sent by RuleFlow.</p></div>'
+    )
+
+    report_email.send_register_email(
+        to_email=recipient,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        pdf_bytes=pdf,
+        filename=filename,
+    )
+    log.info(
+        "register_email_sent",
+        document=document.id,
+        obligations=len(rows),
+        bytes=len(pdf),
+    )
+    return True
+
+
+def _html_escape(text: str) -> str:
+    return (
+        str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
 def _background_ingest(
     db_factory,
     document_id: str,
@@ -470,6 +599,15 @@ def _background_ingest(
         except Exception:
             import traceback
             traceback.print_exc()  # non-fatal: don't fail ingestion
+
+        # Email the register. Non-fatal by design: the analysis is already
+        # committed and correct, and a mail outage must not turn a good run into
+        # a failed document.
+        try:
+            email_register(db, document, extraction)
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     except Exception as e:
         import traceback

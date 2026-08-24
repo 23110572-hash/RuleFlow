@@ -19,6 +19,11 @@ langchain-core>=0.3
 # Document ingestion
 pymupdf>=1.24
 
+# Obligation register PDF (emailed after analysis). PyMuPDF can write PDFs but
+# has no table layout, so rows, text wrapping and page breaks would all be
+# hand-positioned; reportlab does that properly.
+reportlab>=4.2
+
 # pgvector support (Postgres deployments)
 pgvector>=0.3
 
