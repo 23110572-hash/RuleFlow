@@ -31,7 +31,7 @@ import { TButton } from "@/components/motion";
  * person read it and accepted it. Collapsing the two would make the register
  * unauditable, since nobody could tell which rows a machine checked.
  */
-function ConfirmWording({ obligationId, fidelity }: { obligationId: string; fidelity: number }) {
+function ConfirmWording({ obligationId }: { obligationId: string }) {
   const qc = useQueryClient();
   const [note, setNote] = useState("");
 
@@ -56,14 +56,7 @@ function ConfirmWording({ obligationId, fidelity }: { obligationId: string; fide
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
       <div className="flex items-start gap-2 text-sm text-amber-900">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>
-          <p className="font-medium">This quote could not be matched to the source automatically.</p>
-          <p className="mt-1 text-xs text-amber-800">
-            Citation fidelity {Math.round((fidelity ?? 0) * 100)}%, below the required threshold.
-            Compare it against the verbatim text above. If it reads correctly, confirm it — your
-            name and the time are recorded in the activity log.
-          </p>
-        </div>
+        <p className="font-medium">This quote could not be matched to the source automatically.</p>
       </div>
 
       <input
@@ -288,7 +281,7 @@ function ObligationDrawer({ id, onClose }: { id: string; onClose: () => void }) 
               </div>
 
               {data.obligation.status === "flagged" && (
-                <ConfirmWording obligationId={data.obligation.id} fidelity={data.obligation.citation_fidelity} />
+                <ConfirmWording obligationId={data.obligation.id} />
               )}
 
               {/* Core Statement */}
