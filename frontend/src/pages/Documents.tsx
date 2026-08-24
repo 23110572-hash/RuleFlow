@@ -206,7 +206,7 @@ function DocStrip({ doc }: { doc: DocumentT }) {
   const [open, setOpen] = useState(false);
   const failed = doc.status === "error";
 
-  // Coverage certificate: what was captured, what is not applicable, and the
+  // Coverage certificate: how much duty language was captured, and the
   // duty sentences still waiting on a human. A 404 just means no report exists.
   const {
     data: coverage,
@@ -275,10 +275,9 @@ function DocStrip({ doc }: { doc: DocumentT }) {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="grid grid-cols-3 gap-2">
                           <CoverageStat label="Duty signals" value={coverage.signals_total} />
                           <CoverageStat label="Captured" value={coverage.extracted} tone="emerald" />
-                          <CoverageStat label="Not applicable" value={coverage.not_applicable} />
                           <CoverageStat
                             label="Needs review"
                             value={coverage.unaccounted}

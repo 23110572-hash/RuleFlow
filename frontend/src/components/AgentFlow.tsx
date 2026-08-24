@@ -5,7 +5,7 @@ import type { IngestionProgress } from "@/lib/api";
 const STAGES = [
   { icon: FileText, key: "parsing", title: "Reading the document", desc: "Splitting the circular into chapters, clauses and sub-clauses." },
   { icon: ScanText, key: "extracting", title: "Extraction agent", desc: "Finding every obligation and what it requires." },
-  { icon: ShieldCheck, key: "enriching", title: "Citation check & applicability", desc: "Verifying each obligation against its exact source clause." },
+  { icon: ShieldCheck, key: "enriching", title: "Citation check", desc: "Verifying each obligation against its exact source clause." },
   { icon: Radar, key: "coverage", title: "Coverage certificate", desc: "Proving nothing in the circular was missed." },
 ];
 
