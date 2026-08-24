@@ -12,10 +12,10 @@ Hard rules:
 - If a phrase is not present in the clause text, do NOT include it. Never invent deadlines,
   thresholds, or conditions that are not written in the clause.
 - Classify modality precisely:
-    "shall"          -> a hard, mandatory obligation ("shall", "must", "is required to", "no person shall").
-    "may"            -> a discretion / permission.
-    "best_judgment"  -> requires human judgement, not mechanically checkable
-                        (e.g. "reasonable steps", "adequate", "fit and proper", "as appropriate").
+    "shall"            -> a hard, mandatory obligation ("shall", "must", "is required to", "no person shall").
+    "may"              -> a discretion / permission.
+    "judgement_based"  -> requires human judgement, not mechanically checkable
+                          (e.g. "reasonable steps", "adequate", "fit and proper", "as appropriate").
 - Extract structured fields ONLY when explicitly present in the clause text.
 - If the clause imposes no obligation (definitions, headings, recitals), return an empty list.
 
@@ -35,7 +35,7 @@ Return JSON: {"obligations": [
   {
     "verbatim_text": "<exact quote from the clause>",
     "normalized_statement": "<one-sentence plain statement of the duty>",
-    "modality": "shall" | "may" | "best_judgment",
+    "modality": "shall" | "may" | "judgement_based",
     "trigger_condition": "<when it applies, or null>",
     "deadline_or_periodicity": "<e.g. 'monthly', 'within 7 days', 'by end of day', or null>",
     "threshold": "<e.g. '>= 20%', '8 years', or null>",

@@ -10,7 +10,9 @@ NOW = datetime(2026, 7, 7, tzinfo=timezone.utc)
 
 # ---- compile_obligation --------------------------------------------------
 
-def test_best_judgment_not_compilable():
+def test_judgement_based_not_compilable():
+    assert compile_obligation({"modality": "judgement_based"}) is None
+    # the pre-rename spelling must stay uncodifiable for existing records
     assert compile_obligation({"modality": "best_judgment"}) is None
     assert compile_obligation({"modality": "may"}) is None
 

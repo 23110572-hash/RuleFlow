@@ -65,7 +65,7 @@ export default function Obligations() {
           <option value="">All modalities</option>
           <option value="shall">Mandatory requirement (shall)</option>
           <option value="may">Discretionary (may)</option>
-          <option value="best_judgment">Best judgment recommendation</option>
+          <option value="judgement_based">Judgement-based (mandatory, not mechanically checkable)</option>
         </select>
         {(q || modality || documentId) && (
           <button className="btn-ghost" onClick={() => { setQ(""); setModality(""); setDocumentId(""); }}>

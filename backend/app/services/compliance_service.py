@@ -225,7 +225,8 @@ def readiness_for_firm(db: Session, firm_id: str, category: str) -> dict:
         modality = (ob.modality if ob else "shall").lower()
         if modality == "shall":
             return "high"
-        if modality == "best_judgment":
+        # "best_judgment" is the pre-rename spelling of "judgement_based".
+        if modality in {"judgement_based", "best_judgment"}:
             return "medium"
         return "low"
 

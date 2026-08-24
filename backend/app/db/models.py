@@ -61,7 +61,7 @@ class Obligation(Base):
     clause_path: Mapped[str] = mapped_column(String(255), default="", index=True)
     verbatim_text: Mapped[str] = mapped_column(Text, default="")
     normalized_statement: Mapped[str] = mapped_column(Text, default="")
-    modality: Mapped[str] = mapped_column(String(32), default="shall")  # shall|may|best_judgment
+    modality: Mapped[str] = mapped_column(String(32), default="shall")  # shall|may|judgement_based
     trigger_condition: Mapped[str | None] = mapped_column(Text)
     deadline_or_periodicity: Mapped[str | None] = mapped_column(String(255))
     threshold: Mapped[str | None] = mapped_column(String(255))

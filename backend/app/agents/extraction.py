@@ -203,9 +203,16 @@ def _output_budget(clause_chars: int) -> int:
     )
 
 
+#: Renamed from "best_judgment", which read as an invented category next to two
+#: real legal modal verbs. The old spelling is still accepted on the way in: it
+#: appears in older records and a model may echo it back from the prior prompt.
+_LEGACY_MODALITY = {"best_judgment": "judgement_based"}
+
+
 def _norm_modality(value: str | None) -> str:
     v = (value or "shall").strip().lower()
-    return v if v in {"shall", "may", "best_judgment"} else "shall"
+    v = _LEGACY_MODALITY.get(v, v)
+    return v if v in {"shall", "may", "judgement_based"} else "shall"
 
 
 #: Upper bound on categories kept for one obligation. A longer list is the model

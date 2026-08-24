@@ -146,7 +146,7 @@ The Extraction Agent converts regulatory language into structured proposals cont
 - clause path;
 - verbatim regulatory quotation;
 - normalized obligation statement;
-- modality such as `shall`, `may`, or `best_judgment`;
+- modality such as `shall`, `may`, or `judgement_based`;
 - trigger condition;
 - deadline or periodicity;
 - numeric threshold; and

@@ -42,8 +42,13 @@ class GapFinding:
         }
 
 
+#: "best_judgment" is the pre-rename spelling of "judgement_based"; records
+#: written before the rename must keep behaving the same way.
+_NOT_MANDATORY = {"may", "judgement_based", "best_judgment"}
+
+
 def _severity(modality: str, reason: str) -> str:
-    modality = "shall" if (modality or "").lower() not in {"may", "best_judgment"} else modality.lower()
+    modality = "shall" if (modality or "").lower() not in _NOT_MANDATORY else modality.lower()
     return _SEVERITY.get((modality, reason), "medium")
 
 
@@ -63,9 +68,9 @@ def classify_gap(
     modality = (obligation.get("modality") or "shall").lower()
     clause = obligation.get("clause_path")
 
-    # Best-judgment / uncodifiable: a gap only if there is no human attestation
+    # Judgement-based / uncodifiable: a gap only if there is no human attestation
     # (modelled as absence of control/evidence). Never auto-red on the metric.
-    if test_status == "not_compilable" or modality == "best_judgment":
+    if test_status == "not_compilable" or modality in {"judgement_based", "best_judgment"}:
         if not has_control and evidence_count == 0:
             return GapFinding(oid, "missing", "medium",
                               "uncodifiable obligation lacks human attestation", clause)

@@ -61,7 +61,7 @@ def _persist_extraction(
         db.flush()
         obligations.append(ob)
 
-        # Compile crisp obligations into Obligation Tests (best_judgment/may -> None).
+        # Compile crisp obligations into Obligation Tests (judgement_based/may -> None).
         spec = compile_obligation(
             {
                 "modality": ob.modality,

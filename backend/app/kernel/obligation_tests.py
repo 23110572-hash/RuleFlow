@@ -81,11 +81,14 @@ def _to_dt(value: Any) -> datetime | None:
 def compile_obligation(obligation: dict) -> dict | None:
     """Derive an executable test spec from an obligation's structured fields.
 
-    Returns None when the obligation is not codifiable (best_judgment or 'may'),
+    Returns None when the obligation is not codifiable (judgement_based or 'may'),
     signalling that it must be handled as a human-attested checklist item.
     """
     modality = (obligation.get("modality") or "").lower()
-    if modality in {"best_judgment", "may"}:
+    # "best_judgment" is the pre-rename spelling of "judgement_based". Records
+    # written before the rename must stay uncodifiable, or they would silently
+    # acquire an automatic test that cannot actually be evaluated.
+    if modality in {"judgement_based", "best_judgment", "may"}:
         return None
 
     threshold = obligation.get("threshold")

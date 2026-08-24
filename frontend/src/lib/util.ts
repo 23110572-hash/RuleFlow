@@ -21,6 +21,8 @@ export const SEVERITY_STYLE: Record<string, string> = {
 export const MODALITY_STYLE: Record<string, string> = {
   shall: "bg-brand-50 text-brand-700 ring-1 ring-brand-200",
   may: "bg-ink-100 text-ink-600 ring-1 ring-ink-200",
+  judgement_based: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+  // pre-rename spelling, so existing records still get the right colour
   best_judgment: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
 };
 

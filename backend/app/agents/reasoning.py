@@ -53,7 +53,8 @@ def propose_control_and_evidence(obligation_text: str) -> dict:
 _MODALITY_TO_TYPE = {
     "shall": "preventive",
     "may": "detective",
-    "best_judgment": "detective",
+    "judgement_based": "detective",
+    "best_judgment": "detective",  # pre-rename spelling
 }
 
 
