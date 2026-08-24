@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, FileText, GitPullRequest, UploadCloud } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, FileText, GitPullRequest, Loader2, Mail, UploadCloud } from "lucide-react";
 import { api, Coverage, DocumentT, IngestionProgress } from "@/lib/api";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui";
 import { AgentFlow, FlowResult } from "@/components/AgentFlow";
@@ -202,6 +202,61 @@ function friendlyError(err: unknown): string {
   return msg;
 }
 
+/**
+ * Manual resend of the obligation register PDF. The same email is sent
+ * automatically when analysis finishes; this exists because "did it actually
+ * send?" is otherwise only answerable from the server logs, and because a
+ * compliance officer may want the register again later.
+ */
+function EmailRegisterAction({ doc }: { doc: DocumentT }) {
+  const send = useMutation({
+    mutationFn: () => api.emailRegister(doc.id),
+  });
+
+  const disabled = send.isPending || doc.obligation_count === 0;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-ink-100 pt-3">
+      <button
+        type="button"
+        className="btn-ghost text-xs"
+        disabled={disabled}
+        onClick={() => send.mutate()}
+      >
+        {send.isPending ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending…
+          </>
+        ) : (
+          <>
+            <Mail className="h-3.5 w-3.5" /> Email me this register
+          </>
+        )}
+      </button>
+
+      {send.isSuccess && (
+        <span className="flex items-center gap-1.5 text-xs text-emerald-700">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Sent to {send.data.recipient}
+        </span>
+      )}
+      {send.isError && (
+        <span className="flex items-center gap-1.5 text-xs text-red-700">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {(send.error as Error).message}
+        </span>
+      )}
+      {!send.isSuccess && !send.isError && !send.isPending && (
+        <span className="text-xs text-ink-400">
+          {doc.obligation_count === 0
+            ? "Nothing to send — no obligations were extracted."
+            : `${doc.obligation_count} obligations as a PDF attachment.`}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function DocStrip({ doc }: { doc: DocumentT }) {
   const [open, setOpen] = useState(false);
   const failed = doc.status === "error";
@@ -319,6 +374,8 @@ function DocStrip({ doc }: { doc: DocumentT }) {
                       No obligations were detected. This may not be a SEBI regulatory document, or it needs a clearer clause structure.
                     </div>
                   )}
+
+                  <EmailRegisterAction doc={doc} />
                 </>
               )}
             </div>

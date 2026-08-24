@@ -74,6 +74,11 @@ export const api = {
   dashboard: (firmId: string) => request<Dashboard>(`/firms/${firmId}/dashboard`),
   documents: () => request<DocumentT[]>("/documents"),
   coverage: (id: string) => request<Coverage>(`/documents/${id}/coverage`),
+  emailRegister: (id: string) =>
+    request<{ status: string; recipient: string; document_id: string }>(
+      `/documents/${id}/email-register`,
+      { method: "POST" },
+    ),
   ingestText: (body: IngestText) => request<DocumentT>("/documents/ingest-text", { method: "POST", body: JSON.stringify(body) }),
   obligations: (params: Record<string, string>) => {
     const q = new URLSearchParams(params).toString();

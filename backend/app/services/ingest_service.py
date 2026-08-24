@@ -382,15 +382,25 @@ def ingest_pdf_async(
     return document, True
 
 
-def email_register(db: Session, document: Document, extraction=None) -> bool:
-    """Email the obligation register PDF to the firm's user.
+class NoRecipientError(RuntimeError):
+    """The document's firm has no user to send to."""
 
-    Returns True when a mail was sent. Raises on delivery failure so the caller
-    can log it; the caller must treat that as non-fatal, because the analysis is
-    already committed and a mail outage is not a bad ingest.
+
+def email_register(
+    db: Session, document: Document, extraction=None, force: bool = False
+) -> str:
+    """Email the obligation register PDF to the firm's user, returning the address.
+
+    Raises on failure so the caller decides how loud it is: the automatic
+    post-ingest call logs and moves on (the analysis is already committed and a
+    mail outage is not a bad ingest), while the manual endpoint reports the error
+    to the person who clicked the button.
+
+    ``force`` bypasses ``email_register_on_ingest``, which only governs the
+    automatic send.
     """
-    if not settings.email_register_on_ingest:
-        return False
+    if not force and not settings.email_register_on_ingest:
+        raise RuntimeError("Automatic register email is switched off")
 
     firm = db.get(Firm, document.firm_id) if document.firm_id else None
     recipient = db.execute(
@@ -399,8 +409,7 @@ def email_register(db: Session, document: Document, extraction=None) -> bool:
         .order_by(User.recorded_at.asc())
     ).scalars().first()
     if not recipient:
-        log.info("register_email_skipped", document=document.id, reason="no user for firm")
-        return False
+        raise NoRecipientError("No user account is attached to this document's firm")
 
     obligations = db.execute(
         select(Obligation)
@@ -486,10 +495,11 @@ def email_register(db: Session, document: Document, extraction=None) -> bool:
     log.info(
         "register_email_sent",
         document=document.id,
+        recipient=recipient,
         obligations=len(rows),
         bytes=len(pdf),
     )
-    return True
+    return recipient
 
 
 def _html_escape(text: str) -> str:
@@ -602,12 +612,11 @@ def _background_ingest(
 
         # Email the register. Non-fatal by design: the analysis is already
         # committed and correct, and a mail outage must not turn a good run into
-        # a failed document.
+        # a failed document. The Regulations page also exposes a manual resend.
         try:
             email_register(db, document, extraction)
-        except Exception:
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
+            log.warning("register_email_failed", document=document.id, error=str(exc)[:300])
 
     except Exception as e:
         import traceback

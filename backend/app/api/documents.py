@@ -175,6 +175,38 @@ def get_progress(document_id: str, firm: Firm = Depends(get_current_firm), db: S
     }
 
 
+@router.post("/{document_id}/email-register")
+def email_register(
+    document_id: str,
+    firm: Firm = Depends(get_current_firm),
+    db: Session = Depends(get_db),
+):
+    """Email this document's obligation register as a PDF.
+
+    The same send runs automatically when analysis finishes; this is the manual
+    resend. Unlike the automatic path it reports failures to the caller, because
+    someone is waiting on the result of a button press.
+    """
+    doc = db.get(Document, document_id)
+    if not doc or doc.firm_id != firm.id:
+        raise HTTPException(404, "document not found")
+    if doc.status == "error":
+        raise HTTPException(409, "This document's analysis failed. Re-upload it first.")
+    if doc.status != "ingested":
+        raise HTTPException(409, "This document is still being analysed.")
+
+    try:
+        recipient = ingest_service.email_register(db, doc, force=True)
+    except ingest_service.NoRecipientError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        # Surface the provider's reason: "SMTP is not configured", a 502 from the
+        # relay, and a missing REPORT_RELAY_URL all need different fixes.
+        raise HTTPException(502, f"Could not send the register: {exc}") from exc
+
+    return {"status": "sent", "recipient": recipient, "document_id": document_id}
+
+
 @router.get("/{document_id}/coverage", response_model=CoverageOut)
 def get_coverage(document_id: str, firm: Firm = Depends(get_current_firm), db: Session = Depends(get_db)):
     # Verify ownership
