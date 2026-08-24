@@ -168,7 +168,6 @@ def _cover(meta: RegisterMeta, obligations: list[dict], st: dict) -> list:
 def _table(obligations: list[dict], st: dict) -> LongTable:
     header = [
         Paragraph("#", st["th"]),
-        Paragraph("Clause", st["th"]),
         Paragraph("Type", st["th"]),
         Paragraph("Obligation and verbatim source text", st["th"]),
         Paragraph("Citation", st["th"]),
@@ -188,7 +187,6 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
         rows.append(
             [
                 Paragraph(str(i), st["cell_muted"]),
-                Paragraph(_esc(o.get("clause_path") or "—"), st["cell"]),
                 Paragraph(_MODALITY_LABEL.get(modality, _esc(modality)), st["cell"]),
                 Paragraph(body, st["cell"]),
                 Paragraph("Verified" if verified else "Review", st["cell"]),
@@ -200,7 +198,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
     # "Judgement-based" needs 26mm or reportlab breaks it mid-word.
     table = LongTable(
         rows,
-        colWidths=[11 * mm, 28 * mm, 30 * mm, 178 * mm, 26 * mm],
+        colWidths=[11 * mm, 30 * mm, 206 * mm, 26 * mm],
         repeatRows=1,
     )
     style = [
@@ -215,7 +213,7 @@ def _table(obligations: list[dict], st: dict) -> LongTable:
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fbfcfd")]),
     ]
     for row, colour in status_colours:
-        style.append(("TEXTCOLOR", (4, row), (4, row), colour))
+        style.append(("TEXTCOLOR", (3, row), (3, row), colour))
     table.setStyle(TableStyle(style))
     return table
 
@@ -268,8 +266,9 @@ def build_register_pdf(meta: RegisterMeta, obligations: list[dict]) -> bytes:
     flow.append(Spacer(1, 8))
     flow.append(
         Paragraph(
-            "Every row quotes the source document verbatim and cites the clause it "
-            "was taken from. Obligations marked <b>Review</b> did not meet the "
+            "Every row quotes the source document verbatim; the clause it was taken "
+            "from is recorded against each obligation in RuleFlow. Obligations marked "
+            "<b>Review</b> did not meet the "
             "citation-fidelity threshold and need a human to confirm the wording "
             "before they are relied upon.",
             st["note"],
