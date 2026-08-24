@@ -14,6 +14,9 @@ class IngestionProgress:
     processed_clauses: int = 0
     obligations_found: int = 0
     failed_clauses: int = 0
+    #: clause_path of each clause that could not be analysed. A count alone tells
+    #: a reviewer that the register is incomplete but not where the hole is.
+    failed_clause_paths: list[str] = field(default_factory=list)
     action_items_generated: int = 0
     error: str | None = None
 
@@ -45,6 +48,7 @@ class IngestionProgress:
             "processed_clauses": self.processed_clauses,
             "obligations_found": self.obligations_found,
             "failed_clauses": self.failed_clauses,
+            "failed_clause_paths": self.failed_clause_paths,
             "action_items_generated": self.action_items_generated,
             "error": self.error,
         }

@@ -169,6 +169,7 @@ def get_progress(document_id: str, firm: Firm = Depends(get_current_firm), db: S
         "processed_clauses": 0,
         "obligations_found": ob_count,
         "failed_clauses": 0,
+        "failed_clause_paths": [],
         "action_items_generated": 0,
         "error": error,
     }

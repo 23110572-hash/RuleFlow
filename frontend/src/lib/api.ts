@@ -181,7 +181,7 @@ export type IngestText = { title: string; text: string; circular_number?: string
 export type IngestionProgress = {
   document_id: string; status: string; percent: number;
   total_clauses: number; processed_clauses: number;
-  obligations_found: number; failed_clauses?: number;
+  obligations_found: number; failed_clauses?: number; failed_clause_paths?: string[];
   action_items_generated: number; error: string | null;
 };
 export type Obligation = {

@@ -71,6 +71,9 @@ class ExtractionResult:
     #: clauses_processed is a FAILED run, not an empty document.
     clauses_failed: int = 0
     last_error: str = ""
+    #: clause_path of every clause that raised, so a reviewer is told WHICH part
+    #: of the regulation is missing from the register rather than only how many.
+    failed_clause_paths: list[str] = field(default_factory=list)
 
     def verified(self) -> list[ProposedObligation]:
         return [o for o in self.obligations if o.status == "verified"]

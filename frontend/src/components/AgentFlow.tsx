@@ -140,11 +140,37 @@ export function AgentFlow({
       )}
 
       {/* Partial failure: some clauses were captured, some could not be analysed.
-          Previously this was invisible and the run looked perfectly clean. */}
+          Previously this was invisible and the run looked perfectly clean.
+          Name the clauses: "which part of the regulation is missing" is the
+          question a reviewer actually has, and a bare count cannot answer it. */}
       {done && !error && result && (progress?.failed_clauses ?? 0) > 0 && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
-          {progress!.failed_clauses} of {result.clauses} clauses could not be analysed, so this
-          register may be incomplete. Upload the document again to retry those clauses.
+          {(progress!.failed_clause_paths ?? []).length > 0 ? (
+            <>
+              <span className="font-medium">
+                {(progress!.failed_clause_paths ?? []).length === 1
+                  ? `Clause ${progress!.failed_clause_paths![0]} needs re-analysis.`
+                  : `${progress!.failed_clauses} clauses need re-analysis:`}
+              </span>{" "}
+              {(progress!.failed_clause_paths ?? []).length > 1 && (
+                <span className="font-mono text-xs">
+                  {(progress!.failed_clause_paths ?? []).slice(0, 8).join(", ")}
+                  {(progress!.failed_clause_paths ?? []).length > 8 &&
+                    ` +${(progress!.failed_clause_paths ?? []).length - 8} more`}
+                </span>
+              )}{" "}
+              <span>
+                Every other clause was read, so the register is complete apart from{" "}
+                {(progress!.failed_clause_paths ?? []).length === 1 ? "this one" : "these"}.
+                Upload the document again to retry.
+              </span>
+            </>
+          ) : (
+            <>
+              {progress!.failed_clauses} of {result.clauses} clauses could not be analysed, so this
+              register may be incomplete. Upload the document again to retry those clauses.
+            </>
+          )}
         </div>
       )}
 

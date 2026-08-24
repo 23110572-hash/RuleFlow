@@ -417,6 +417,7 @@ def _background_ingest(
         if prog:
             prog.status = "enriching"
             prog.failed_clauses = extraction.clauses_failed
+            prog.failed_clause_paths = list(extraction.failed_clause_paths)
 
         # 3. Persist results. This upload replaces any earlier analysis of the
         #    same document — we only reach here once extraction actually
@@ -449,10 +450,16 @@ def _background_ingest(
             prog.status = "done"
             prog.obligations_found = len(obligations)
             prog.failed_clauses = extraction.clauses_failed
+            prog.failed_clause_paths = list(extraction.failed_clause_paths)
             if extraction.clauses_failed:
+                named = ", ".join(extraction.failed_clause_paths[:10])
+                if len(extraction.failed_clause_paths) > 10:
+                    named += f" (+{len(extraction.failed_clause_paths) - 10} more)"
                 prog.error = (
                     f"{extraction.clauses_failed} of {extraction.clauses_processed} "
-                    f"clauses could not be analysed. Last error: {extraction.last_error[:200]}"
+                    f"clauses could not be analysed"
+                    + (f": {named}" if named else "")
+                    + f". Last error: {extraction.last_error[:200]}"
                 )
 
         # Auto-trigger change detection (diff + impact) if a prior version exists.

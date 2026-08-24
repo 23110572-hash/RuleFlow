@@ -46,22 +46,25 @@ def _extract_many(
     on_clause_done: Callable | None = None,
     processed_offset: int = 0,
     total_override: int | None = None,
-) -> tuple[list[dict], int, str]:
-    """Extract from ``clauses`` concurrently. Returns (obligations, failed, last_error).
+) -> tuple[list[dict], list[str], str]:
+    """Extract from ``clauses`` concurrently.
+
+    Returns (obligations, failed_clause_paths, last_error).
 
     Obligations come back in clause order, not completion order. A single flaky
-    clause is counted rather than raised, so one bad clause cannot destroy a
-    500-clause run; the count is returned so the caller can distinguish "this
-    document contains no obligations" from "every LLM call failed".
+    clause is recorded rather than raised, so one bad clause cannot destroy a
+    500-clause run; the failures are returned so the caller can distinguish "this
+    document contains no obligations" from "every LLM call failed", and can name
+    the clauses a reviewer needs to look at.
     """
     total = len(clauses)
     if total == 0:
-        return [], 0, ""
+        return [], [], ""
 
     # One slot per clause, filled by exactly one worker -> order is preserved
     # and no lock is needed to write into it.
     per_clause: list[list[dict]] = [[] for _ in range(total)]
-    failed = 0
+    failed_paths: list[str] = []
     last_error = ""
     workers = max(1, min(settings.llm_concurrency, total))
     reported_total = total_override if total_override is not None else total
@@ -86,7 +89,7 @@ def _extract_many(
             try:
                 per_clause[i] = [o.to_dict() for o in future.result()]
             except Exception as exc:
-                failed += 1
+                failed_paths.append(clauses[i].clause_path)
                 last_error = str(exc)
                 log.warning(
                     "clause_extraction_failed",
@@ -96,10 +99,16 @@ def _extract_many(
             done += 1
             if on_clause_done:
                 found = sum(len(chunk) for chunk in per_clause)
-                on_clause_done(processed_offset + done, reported_total, found, failed)
+                on_clause_done(
+                    processed_offset + done, reported_total, found, len(failed_paths)
+                )
 
     obligations = [ob for chunk in per_clause for ob in chunk]
-    return obligations, failed, last_error
+    # Report in clause order, not completion order, so the list a reviewer sees
+    # follows the regulation.
+    order = {c.clause_path: n for n, c in enumerate(clauses)}
+    failed_paths.sort(key=lambda p: order.get(p, 0))
+    return obligations, failed_paths, last_error
 
 
 def _apply_applicability_policy(obligations: list[dict], enabled: bool) -> None:
@@ -128,7 +137,7 @@ def _extract_node(state: PipelineState) -> PipelineState:
     """Advance the cursor by one bounded, concurrent window of clauses."""
     i = state["cursor"]
     window = state["clauses"][i : i + max(1, settings.llm_concurrency)]
-    obligations, failed, last_error = _extract_many(
+    obligations, failed_paths, last_error = _extract_many(
         state["document_text"],
         window,
         state["source_hash"],
@@ -137,9 +146,10 @@ def _extract_node(state: PipelineState) -> PipelineState:
     )
     # This entry point has always failed loudly on a bad clause; keep it that
     # way rather than silently degrading a synchronous ingest.
-    if failed:
+    if failed_paths:
         raise RuntimeError(
-            f"Extraction failed on {failed} of {len(window)} clause(s). Last error: {last_error}"
+            f"Extraction failed on {len(failed_paths)} of {len(window)} clause(s) "
+            f"({', '.join(failed_paths)}). Last error: {last_error}"
         )
     state["obligations"].extend(obligations)
     state["cursor"] = i + len(window)
@@ -257,7 +267,7 @@ def run_extraction_pipeline_with_progress(
     source_hash = content_hash(document_text)
     thr = threshold if threshold is not None else settings.citation_fidelity_threshold
 
-    all_obligations, failed, last_error = _extract_many(
+    all_obligations, failed_paths, last_error = _extract_many(
         document_text,
         targets,
         source_hash,
@@ -269,15 +279,19 @@ def run_extraction_pipeline_with_progress(
     # Every clause failed: this is a provider/config failure, not an empty
     # document. Surface it so the ingest is recorded as an error instead of a
     # clean run with zero obligations.
-    if targets and failed >= len(targets):
+    if targets and len(failed_paths) >= len(targets):
         raise RuntimeError(
-            f"Extraction failed on all {failed} clause(s). Last error: {last_error}"
+            f"Extraction failed on all {len(failed_paths)} clause(s). Last error: {last_error}"
         )
 
     # Applicability came back with the extraction call; only the policy is left.
     _apply_applicability_policy(all_obligations, enrich_applicability)
 
-    result = ExtractionResult(clauses_failed=failed, last_error=last_error)
+    result = ExtractionResult(
+        clauses_failed=len(failed_paths),
+        last_error=last_error,
+        failed_clause_paths=failed_paths,
+    )
     for od in all_obligations:
         result.obligations.append(
             ProposedObligation(
